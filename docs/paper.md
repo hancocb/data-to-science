@@ -88,7 +88,7 @@ The D2S frontend web application provides researchers with an intuitive interfac
 |                    |                                                           | - User configurable settings for the ODM pipeline                |
 |                    |                                                           |                                                                  |
 +--------------------+-----------------------------------------------------------+------------------------------------------------------------------+
-| **Postprocessing** | Basic analysis of geospatial data products                | - Calculating vegetation indices (NDVI\footnotemark[1], ExG\footnotemark[2], VARI\footnotemark[2])   |
+| **Postprocessing** | Basic analysis of geospatial data products                | - Calculating vegetation indices (NDVI\footnotemark{}, ExG\footnotemark{}, VARI\footnotemark{})   |
 |                    |                                                           |   and hillshade from raster data                                 |
 |                    |                                                           | - Generating Digital Terrain Models (DTM) and Normalized         |
 |                    |                                                           |   Difference Height Models (NDHM) from point cloud data          |
@@ -99,9 +99,9 @@ The D2S frontend web application provides researchers with an intuitive interfac
 |                    |                                                           |   publicly published                                             |
 +--------------------+-----------------------------------------------------------+------------------------------------------------------------------+
 
-\footnotetext[1]{NDVI = Normalized Difference Vegetation Index}
-\footnotetext[2]{ExG = Excess Green Vegetation Index}
-\footnotetext[3]{VARI = Visual Atmospherically Resistant Index}
+\footnotetext{NDVI = Normalized Difference Vegetation Index}
+\footnotetext{ExG = Excess Green Vegetation Index}
+\footnotetext{VARI = Visual Atmospherically Resistant Index}
 
 Furthermore, the Python module, [*d2spy*](https://py.d2s.org), is available through PyPI (https://py.d2s.org/), and the QGIS plugin, [*D2S Browser*](https://plugins.qgis.org/plugins/d2s_browser/), is also available at https://plugins.qgis.org/plugins/d2s_browser/. Notably, with *d2spy*, researchers can comprehensively analyze the geospatial data stored within the D2S ecosystem as well as external public datasets, such as Landsat, by seamlessly integrating with other Python packages like *geemap* [@wu2020geemap] and *leafmap* [@wu2021leafmap]. Additionally, datasets, such as 3DEP and NAIP datasets, can also be incorporated into collective analyses as they are provided via the [D2S STAC catalog](https://stac.d2s.org/) (https://stac.d2s.org/) as part of the D2S ecosystem.
 
