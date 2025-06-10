@@ -99,7 +99,6 @@ The D2S frontend web application provides researchers with an intuitive interfac
 |                    |                                                           |   publicly published                                             |
 |                    |                                                           | \vspace{2em}                                                     |
 +--------------------+-----------------------------------------------------------+------------------------------------------------------------------+
-
 ¹ NDVI = Normalized Difference Vegetation Index  
 ² ExG = Excess Green Vegetation Index  
 ³ VARI = Visual Atmospherically Resistant Index  
