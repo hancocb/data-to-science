@@ -88,7 +88,7 @@ The D2S frontend web application provides researchers with an intuitive interfac
 |                    |                                                           | - User configurable settings for the ODM pipeline                |
 |                    |                                                           | \vspace{1em}                                                     |
 +--------------------+-----------------------------------------------------------+------------------------------------------------------------------+
-| **Postprocessing** | Basic analysis of geospatial data products                | - Calculating vegetation indices (NDVI¹, ExG², VARI³)   |
+| **Postprocessing** | Basic analysis of geospatial data products                | - Calculating vegetation indices (NDVI¹, ExG², VARI³) and        |
 |                    |                                                           |   and hillshade from raster data                                 |
 |                    |                                                           | - Generating Digital Terrain Models (DTM) and Normalized         |
 |                    |                                                           |   Difference Height Models (NDHM) from point cloud data          |
