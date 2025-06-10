@@ -71,14 +71,14 @@ The D2S frontend web application provides researchers with an intuitive interfac
 |                    |                                                           | - Swipe comparison of geospatial data products across time or    |
 |                    |                                                           |   data type                                                      |
 |                    |                                                           | - Visualizing 3D point cloud data                                |
-|                    |                                                           | \vspace{2em}                                                     |
+|                    |                                                           | \vspace{1em}                                                     |
 +--------------------+-----------------------------------------------------------+------------------------------------------------------------------+
 | **Collaboration**  | Sharing data with others within the D2S web application   |
 |                    | or by sending a sharable link                             | - Managing teams and members                                     | 
 |                    |                                                           | - Creating accessible links and/or QR codes for shared data      |
 |                    |                                                           | - Granting public access to data with no account or API key      |
 |                    |                                                           |   required                                                       |
-|                    |                                                           | \vspace{2em}                                                     |
+|                    |                                                           | \vspace{1em}                                                     |
 +--------------------+-----------------------------------------------------------+------------------------------------------------------------------+
 | **Preprocessing**  | Producing geospatial data products, such as dense point   |
 |                    | clouds, Digital Surface Models (DSM), and orthorectified  |
@@ -86,18 +86,18 @@ The D2S frontend web application provides researchers with an intuitive interfac
 |                    |                                                           |   [OpenDroneMap (ODM)](https://www.opendronemap.org/) via        |
 |                    |                                                           |   ClusterODM                                                     |
 |                    |                                                           | - User configurable settings for the ODM pipeline                |
-|                    |                                                           | \vspace{2em}                                                     |
+|                    |                                                           | \vspace{1em}                                                     |
 +--------------------+-----------------------------------------------------------+------------------------------------------------------------------+
 | **Postprocessing** | Basic analysis of geospatial data products                | - Calculating vegetation indices (NDVI¹, ExG², VARI³)   |
 |                    |                                                           |   and hillshade from raster data                                 |
 |                    |                                                           | - Generating Digital Terrain Models (DTM) and Normalized         |
 |                    |                                                           |   Difference Height Models (NDHM) from point cloud data          |
 |                    |                                                           | - Zonal statistics based on vector data                          |
-|                    |                                                           | \vspace{2em}                                                     |
+|                    |                                                           | \vspace{1em}                                                     |
 +--------------------+-----------------------------------------------------------+------------------------------------------------------------------+
 | **Publishing**     | Publicly publishing data to the D2S STAC catalog          | - Generating and pushing STAC catalogs of datasets to be         |
 |                    |                                                           |   publicly published                                             |
-|                    |                                                           | \vspace{2em}                                                     |
+|                    |                                                           | \vspace{1em}                                                     |
 +--------------------+-----------------------------------------------------------+------------------------------------------------------------------+
 ¹ NDVI = Normalized Difference Vegetation Index  
 ² ExG = Excess Green Vegetation Index  
