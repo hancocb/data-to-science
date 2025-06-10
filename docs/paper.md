@@ -76,6 +76,18 @@ The D2S frontend web application provides researchers with an intuitive interfac
 [^exg]: ExG = Excess Green Vegetation Index
 [^vari]: VARI = Visual Atmospherically Resistant Index
 
++------------+-----------------------------------------------------------+------------------------------------------------------------------+
+| Category   | Description                                               | Functionalities                                                  |
++============+===========================================================+==================================================================+
+| Catalog    | Dynamic spatiotemporal cataloging of geospatial data in a |
+|            | cloud-optimized format.                                   | - Sorting geospatial data by time and location[^1]               |
+|            |                                                           | - Raster/vector data visualization with symbology configuration |
+|            |                                                           | - Swipe comparison of datasets across time/type                 |
+|            |                                                           | - 3D point cloud visualization                                   |
++------------+-----------------------------------------------------------+------------------------------------------------------------------+
+
+[^1]: Such as 2D raster (.tif), 3D point cloud (.las/.laz), vector (.geojson/.shp)
+
 Furthermore, the Python module, [*d2spy*](https://py.d2s.org), is available through PyPI (https://py.d2s.org/), and the QGIS plugin, [*D2S Browser*](https://plugins.qgis.org/plugins/d2s_browser/), is also available at https://plugins.qgis.org/plugins/d2s_browser/. Notably, with *d2spy*, researchers can comprehensively analyze the geospatial data stored within the D2S ecosystem as well as external public datasets, such as Landsat, by seamlessly integrating with other Python packages like *geemap* [@wu2020geemap] and *leafmap* [@wu2021leafmap]. Additionally, datasets, such as 3DEP and NAIP datasets, can also be incorporated into collective analyses as they are provided via the [D2S STAC catalog](https://stac.d2s.org/) (https://stac.d2s.org/) as part of the D2S ecosystem.
 
 
