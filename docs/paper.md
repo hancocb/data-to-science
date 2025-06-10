@@ -65,9 +65,12 @@ The D2S frontend web application provides researchers with an intuitive interfac
 | **Preprocessing** | Producing geospatial data products, such as dense point clouds, Digital Surface Models (DSM), and orthorectified images, from raw UAS data | - Connecting to a photogrammetry pipeline based on open-source [OpenDroneMap (ODM)](https://www.opendronemap.org/) via ClusterODM - User configurable settings for the ODM pipeline |
 | **Postprocessing** | Basic analysis of geospatial data products | - Calculating vegetation indices (NDVI, ExG, VARI) and hillshade from raster data - Generating Digital Terrain Models (DTM) and Normalized Difference Height Models (NDHM) from point cloud data - Zonal statistics based on vector data |
 | **Publishing** | Publicly publishing data to the D2S STAC catalog | - Generating and pushing STAC catalogs of datasets to be publicly published |
-|--------------+-----------------+---------------------|
-| NDVI = Normalized Difference Vegetation Index, ExG = Excess Green Vegetation Index, VARI = Visual Atmospherically Resistant Index |
 
+<ul>
+<li>NDVI = Normalized Difference Vegetation Index</li>
+<li>ExG = Excess Green Vegetation Index</li>
+<li>VARI = Visual Atmospherically Resistant Index</li>
+</ul>
 
 Furthermore, the Python module, [*d2spy*](https://py.d2s.org), is available through PyPI (https://py.d2s.org/), and the QGIS plugin, [*D2S Browser*](https://plugins.qgis.org/plugins/d2s_browser/), is also available at https://plugins.qgis.org/plugins/d2s_browser/. Notably, with *d2spy*, researchers can comprehensively analyze the geospatial data stored within the D2S ecosystem as well as external public datasets, such as Landsat, by seamlessly integrating with other Python packages like *geemap* [@wu2020geemap] and *leafmap* [@wu2021leafmap]. Additionally, datasets, such as 3DEP and NAIP datasets, can also be incorporated into collective analyses as they are provided via the [D2S STAC catalog](https://stac.d2s.org/) (https://stac.d2s.org/) as part of the D2S ecosystem.
 
