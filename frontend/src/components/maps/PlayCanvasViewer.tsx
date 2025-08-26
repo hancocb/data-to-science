@@ -16,7 +16,13 @@ function Scene({ splatUrl }: { splatUrl: string }) {
       </Entity>
       <Entity position={[0, 0, -2.5]}>
         <Camera />
-        <OrbitControls />
+        <OrbitControls
+          distanceMin={0.1}
+          distanceMax={20}
+          distance={20}
+          mouse={{ distanceSensitivity: 0.5 }}
+          touch={{ distanceSensitivity: 0.5 }}
+        />
       </Entity>
     </>
   );
