@@ -10,6 +10,7 @@ from app.db.base_class import Base
 from app.models.utils.utcnow import utcnow
 
 if TYPE_CHECKING:
+    from .annotation import Annotation
     from .data_product_metadata import DataProductMetadata
     from .file_permission import FilePermission
     from .flight import Flight
@@ -49,6 +50,11 @@ class DataProduct(Base):
         ForeignKey("flights.id"), nullable=False
     )
     # relationships
+    annotations: Mapped[List["Annotation"]] = relationship(
+        back_populates="data_product",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
     data_product_metadata: Mapped[List["DataProductMetadata"]] = relationship(
         back_populates="data_product", cascade="all, delete"
     )
