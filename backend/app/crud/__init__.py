@@ -1,3 +1,6 @@
+from .crud_annotation import annotation
+from .crud_annotation_attachment import annotation_attachment
+from .crud_annotation_tag import annotation_tag
 from .crud_api_key import api_key
 from .crud_breedbase_connection import breedbase_connection
 from .crud_campaign import campaign
@@ -17,6 +20,7 @@ from .crud_project_module import project_module
 from .crud_raw_data import raw_data
 from .crud_refresh_token import refresh_token
 from .crud_shortened_url import shortened_url
+from .crud_tag import tag
 from .crud_team import team
 from .crud_team_member import team_member
 from .crud_upload import upload
