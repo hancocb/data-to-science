@@ -1,3 +1,6 @@
+from .annotation import Annotation
+from .annotation_attachment import AnnotationAttachment
+from .annotation_tag import AnnotationTag
 from .api_key import APIKey
 from .breedbase_connection import BreedbaseConnection
 from .campaign import Campaign
@@ -20,6 +23,7 @@ from .raw_data import RawData
 from .refresh_token import RefreshToken
 from .shortened_url import ShortenedUrl
 from .single_use_token import SingleUseToken
+from .tag import Tag
 from .team import Team
 from .team_extension import TeamExtension
 from .team_member import TeamMember
