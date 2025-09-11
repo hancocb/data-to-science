@@ -62,10 +62,10 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         for field in obj_data:
             if field in update_data:
                 setattr(db_obj, field, update_data[field])
-            with db as session:
-                session.add(db_obj)
-                session.commit()
-                session.refresh(db_obj)
+        with db as session:
+            session.add(db_obj)
+            session.commit()
+            session.refresh(db_obj)
         return db_obj
 
     def remove(self, db: Session, *, id: UUID) -> ModelType | None:
