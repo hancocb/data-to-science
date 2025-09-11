@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, UUID4
 
 # shared properties
 class TagBase(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
 
 
 # properties to receive via API on creation

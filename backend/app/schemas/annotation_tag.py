@@ -9,13 +9,11 @@ if TYPE_CHECKING:
 
 # shared properties
 class AnnotationTagBase(BaseModel):
-    annotation_id: Optional[UUID4] = None
     tag_id: Optional[UUID4] = None
 
 
 # properties to receive via API on creation
 class AnnotationTagCreate(AnnotationTagBase):
-    annotation_id: UUID4
     tag_id: UUID4
 
 
