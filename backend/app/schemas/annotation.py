@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional, TYPE_CHECKING
 
-from geojson_pydantic import Feature, FeatureCollection
+from geojson_pydantic import Feature
 from pydantic import BaseModel, Field, UUID4
 
 if TYPE_CHECKING:
@@ -12,16 +12,14 @@ if TYPE_CHECKING:
 
 # shared properties
 class AnnotationBase(BaseModel):
-    description: Optional[str] = Field(None, min_length=1)
+    description: Optional[str] = Field(default=None, min_length=1)
     geom: Optional[Feature] = None
-    data_product_id: Optional[UUID4] = None
 
 
 # properties to receive via API on creation
 class AnnotationCreate(AnnotationBase):
     description: str = Field(min_length=1)
     geom: Feature
-    data_product_id: UUID4
 
 
 # properties to receive via API on update

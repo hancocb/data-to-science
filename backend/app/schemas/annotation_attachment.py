@@ -6,14 +6,13 @@ from pydantic import BaseModel, Field, UUID4
 
 # shared properties
 class AnnotationAttachmentBase(BaseModel):
-    original_filename: Optional[str] = Field(None, min_length=1, max_length=255)
-    filepath: Optional[str] = Field(None, min_length=1, max_length=255)
-    content_type: Optional[str] = Field(None, min_length=1, max_length=127)
-    size_bytes: Optional[int] = Field(None, ge=0)
-    width_px: Optional[int] = Field(None, ge=1)
-    height_px: Optional[int] = Field(None, ge=1)
-    duration_seconds: Optional[float] = Field(None, ge=0.0)
-    annotation_id: Optional[UUID4] = None
+    original_filename: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    filepath: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    content_type: Optional[str] = Field(default=None, min_length=1, max_length=127)
+    size_bytes: Optional[int] = Field(default=None, ge=0)
+    width_px: Optional[int] = Field(default=None, ge=1)
+    height_px: Optional[int] = Field(default=None, ge=1)
+    duration_seconds: Optional[float] = Field(default=None, ge=0.0)
 
 
 # properties to receive via API on creation
@@ -22,7 +21,6 @@ class AnnotationAttachmentCreate(AnnotationAttachmentBase):
     filepath: str = Field(min_length=1, max_length=255)
     content_type: str = Field(min_length=1, max_length=127)
     size_bytes: int = Field(ge=0)
-    annotation_id: UUID4
 
 
 # properties to receive via API on update
