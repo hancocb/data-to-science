@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.crud.base import CRUDBase
 from app.models.annotation import Annotation
@@ -13,7 +13,12 @@ from app.schemas.annotation import AnnotationCreate, AnnotationUpdate
 
 class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
     def create_with_data_product(
-        self, db: Session, *, obj_in: AnnotationCreate, data_product_id: UUID
+        self,
+        db: Session,
+        *,
+        obj_in: AnnotationCreate,
+        data_product_id: UUID,
+        created_by_id: UUID | None = None,
     ) -> Annotation:
         """Create a new annotation with proper geometry handling.
 
@@ -21,6 +26,7 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
             db (Session): Database session.
             obj_in (AnnotationCreate): Annotation data to create.
             data_product_id (UUID): ID of the data product this annotation belongs to.
+            created_by_id (UUID | None): ID of the user who created this annotation.
 
         Returns:
             Annotation: Created annotation object.
@@ -40,6 +46,7 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
             description=obj_in_data["description"],
             geom=geom,
             data_product_id=data_product_id,
+            created_by_id=created_by_id,
         )
 
         with db as session:
@@ -117,6 +124,25 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
         with db as session:
             annotations = session.scalars(statement).all()
             return annotations
+
+    def get_with_created_by(self, db: Session, id: UUID) -> Annotation | None:
+        """Get an annotation with the created_by relationship loaded.
+
+        Args:
+            db (Session): Database session.
+            id (UUID): Annotation ID.
+
+        Returns:
+            Annotation | None: Annotation with created_by loaded, or None if not found.
+        """
+        statement = (
+            select(Annotation)
+            .options(selectinload(Annotation.created_by))
+            .where(Annotation.id == id)
+        )
+
+        with db as session:
+            return session.scalar(statement)
 
 
 annotation = CRUDAnnotation(Annotation)

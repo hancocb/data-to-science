@@ -1,13 +1,14 @@
 import uuid
 from datetime import datetime
-from typing import List, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING
 
 from geoalchemy2 import Geometry
-from sqlalchemy import DateTime, ForeignKey, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import DateTime, ForeignKey, Text, text
+from sqlalchemy.dialects.postgresql import ENUM, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+from app.models.enums.visibility import Visibility, VisibilityEnum
 from app.models.utils.utcnow import utcnow
 
 
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from .annotation_attachment import AnnotationAttachment
     from .annotation_tag import AnnotationTag
     from .data_product import DataProduct
+    from .user import User
 
 
 class Annotation(Base):
@@ -37,10 +39,19 @@ class Annotation(Base):
         onupdate=utcnow(),
         nullable=False,
     )
+    visibility: Mapped[Visibility] = mapped_column(
+        ENUM(Visibility, name="visibility_scope"),
+        nullable=False,
+        default=Visibility.OWNER,
+        server_default=Visibility.OWNER.value,
+    )
 
     # Foreign keys
     data_product_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("data_products.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
     # Relationships
@@ -49,12 +60,13 @@ class Annotation(Base):
         lazy="joined",
     )
     attachments: Mapped[List["AnnotationAttachment"]] = relationship(
-        back_populates="annotation",
-        cascade="all, delete-orphan",
+        back_populates="annotation", cascade="all, delete-orphan", passive_deletes=True
     )
+    created_by: Mapped[Optional["User"]] = relationship(back_populates="annotations")
     tag_rows: Mapped[List["AnnotationTag"]] = relationship(
         back_populates="annotation",
         cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
     def __repr__(self) -> str:

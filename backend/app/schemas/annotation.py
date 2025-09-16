@@ -4,10 +4,12 @@ from typing import List, Optional, TYPE_CHECKING
 from geojson_pydantic import Feature
 from pydantic import BaseModel, Field, UUID4
 
+
 if TYPE_CHECKING:
     from app.schemas.annotation_attachment import AnnotationAttachment
     from app.schemas.annotation_tag import AnnotationTag
     from app.schemas.data_product import DataProduct
+    from app.schemas.user import User
 
 
 # shared properties
@@ -33,14 +35,16 @@ class AnnotationInDBBase(AnnotationBase, from_attributes=True):
     description: str
     geom: Feature
     data_product_id: UUID4
+    created_by_id: Optional[UUID4] = None
     created_at: datetime
     updated_at: datetime
 
 
 # additional properties to return via API
 class Annotation(AnnotationInDBBase):
-    data_product: Optional["DataProduct"] = None
     attachments: List["AnnotationAttachment"] = []
+    created_by: Optional["User"] = None
+    data_product: Optional["DataProduct"] = None
     tag_rows: List["AnnotationTag"] = []
 
 

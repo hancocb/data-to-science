@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app import crud
 from app.api.deps import get_current_user, get_current_approved_user
 from app.core.config import settings
-from app.models.project_type import ProjectType
+from app.models.enums.project_type import ProjectType
 from app.schemas.role import Role
 from app.schemas.team import TeamUpdate
 from app.schemas.team_member import TeamMemberCreate, TeamMemberUpdate

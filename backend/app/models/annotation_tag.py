@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey
+from sqlalchemy import DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -43,6 +43,13 @@ class AnnotationTag(Base):
     # Relationships
     annotation: Mapped["Annotation"] = relationship(back_populates="tag_rows")
     tag: Mapped["Tag"] = relationship(back_populates="annotation_tags")
+
+    # Constraints
+    __table_args__ = (
+        UniqueConstraint(
+            "annotation_id", "tag_id", name="uq_annotation_tag_annotation_id_tag_id"
+        ),
+    )
 
     def __repr__(self) -> str:
         return (

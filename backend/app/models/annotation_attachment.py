@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -30,7 +31,7 @@ class AnnotationAttachment(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
-    filepath: Mapped[str] = mapped_column(String(255), nullable=False)
+    filepath: Mapped[str] = mapped_column(Text, nullable=False)
     content_type: Mapped[str] = mapped_column(String(127), nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     # Optional media attributes columns
@@ -49,7 +50,7 @@ class AnnotationAttachment(Base):
 
     # Foreign keys
     annotation_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("annotations.id"), nullable=False, index=True
+        ForeignKey("annotations.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
     # Relationships

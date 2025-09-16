@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import List, TYPE_CHECKING
 
-from sqlalchemy import DateTime, String, UniqueConstraint
+from sqlalchemy import DateTime, func, Index, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -39,7 +39,7 @@ class Tag(Base):
     )
 
     # Constraints
-    __table_args__ = (UniqueConstraint("name", name="uq_tag_name"),)
+    __table_args__ = (Index("uq_tag_name_ci", func.lower(name), unique=True),)
 
     def __repr__(self) -> str:
         return (

@@ -21,7 +21,7 @@ from app.models.project import Project
 from app.models.project_like import ProjectLike
 from app.models.project_member import ProjectMember
 from app.models.project_module import ProjectModule
-from app.models.project_type import ProjectType
+from app.models.enums.project_type import ProjectType
 from app.models.team import Team
 from app.models.team_member import TeamMember
 from app.models.user import User

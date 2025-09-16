@@ -14,6 +14,7 @@ def create_annotation(
     description: str = "Test annotation",
     geometry_type: str = "Point",
     data_product_id: UUID | None = None,
+    created_by_id: UUID | None = None,
 ) -> Annotation:
     """Create a test annotation.
 
@@ -22,6 +23,7 @@ def create_annotation(
         description (str): Annotation description.
         geometry_type (str): Type of geometry ("Point", "LineString", "Polygon").
         data_product_id (UUID | None): Data product ID. If None, creates a new data product.
+        created_by_id (UUID | None): User ID who created the annotation.
 
     Returns:
         Annotation: Created annotation object.
@@ -42,7 +44,10 @@ def create_annotation(
     )
 
     annotation = crud.annotation.create_with_data_product(
-        db=db, obj_in=annotation_in, data_product_id=data_product_id
+        db=db,
+        obj_in=annotation_in,
+        data_product_id=data_product_id,
+        created_by_id=created_by_id,
     )
 
     return annotation
@@ -75,6 +80,7 @@ def create_multiple_annotations(
     count: int = 3,
     data_product_id: UUID | None = None,
     base_description: str = "Test annotation",
+    created_by_id: UUID | None = None,
 ) -> list[Annotation]:
     """Create multiple test annotations for the same data product.
 
@@ -83,6 +89,7 @@ def create_multiple_annotations(
         count (int): Number of annotations to create.
         data_product_id (UUID | None): Data product ID. If None, creates a new data product.
         base_description (str): Base description for annotations (will be numbered).
+        created_by_id (UUID | None): User ID who created the annotations.
 
     Returns:
         list[Annotation]: List of created annotation objects.
@@ -104,6 +111,7 @@ def create_multiple_annotations(
             description=description,
             geometry_type=geometry_type,
             data_product_id=data_product_id,
+            created_by_id=created_by_id,
         )
         annotations.append(annotation)
 

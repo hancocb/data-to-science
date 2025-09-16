@@ -10,6 +10,7 @@ from app.tests.utils.annotation import (
 )
 from app.tests.utils.data_product import SampleDataProduct
 from app.tests.utils.tag import create_tag
+from app.tests.utils.user import create_user
 
 
 def test_create_annotation(db: Session) -> None:
@@ -27,7 +28,7 @@ def test_create_annotation(db: Session) -> None:
 
     # Attach a tag to the annotation
     tag = create_tag(db)
-    annotation_tag_in = AnnotationTagCreate(annotation_id=annotation.id, tag_id=tag.id)
+    annotation_tag_in = AnnotationTagCreate(tag_id=tag.id)
     annotation_tag = crud.annotation_tag.create_with_annotation(
         db=db, obj_in=annotation_tag_in, annotation_id=annotation.id
     )
@@ -39,8 +40,37 @@ def test_create_annotation(db: Session) -> None:
     assert annotation.created_at is not None
     assert annotation.updated_at is not None
     assert annotation.geom is not None  # Geometry should be stored
+    assert annotation.created_by_id is None  # No user specified
     assert annotation_tag.annotation_id == annotation.id
     assert annotation_tag.tag_id == tag.id
+
+
+def test_create_annotation_with_user(db: Session) -> None:
+    # Create a user and data product
+    user = create_user(db)
+    sample_data_product = SampleDataProduct(db)
+    data_product = sample_data_product.obj
+
+    # Create annotation with user
+    annotation = create_annotation(
+        db=db,
+        description="Test annotation with user",
+        geometry_type="Point",
+        data_product_id=data_product.id,
+        created_by_id=user.id,
+    )
+
+    # Assertions
+    assert annotation.description == "Test annotation with user"
+    assert annotation.data_product_id == data_product.id
+    assert annotation.created_by_id == user.id
+
+    # Get annotation with created_by relationship loaded
+    annotation_with_user = crud.annotation.get_with_created_by(db=db, id=annotation.id)
+    assert annotation_with_user is not None
+    assert annotation_with_user.created_by is not None
+    assert annotation_with_user.created_by.id == user.id
+    assert annotation_with_user.created_by.email == user.email
 
 
 def test_get_multi_by_data_product_id(db: Session) -> None:
@@ -133,3 +163,46 @@ def test_delete_annotation(db: Session) -> None:
     # Verify annotation is deleted
     retrieved_annotation = crud.annotation.get(db=db, id=annotation_id)
     assert retrieved_annotation is None
+
+
+def test_annotation_created_by_id_set_to_null_when_user_deleted(db: Session) -> None:
+    # Create a user and data product
+    user = create_user(db)
+    sample_data_product = SampleDataProduct(db)
+    data_product = sample_data_product.obj
+
+    # Create annotation with user
+    annotation = create_annotation(
+        db=db,
+        description="Test annotation with user",
+        geometry_type="Point",
+        data_product_id=data_product.id,
+        created_by_id=user.id,
+    )
+
+    # Verify annotation has user
+    assert annotation.created_by_id == user.id
+
+    # Get annotation with created_by relationship loaded to verify user exists
+    annotation_with_user = crud.annotation.get_with_created_by(db=db, id=annotation.id)
+    assert annotation_with_user is not None
+    assert annotation_with_user.created_by is not None
+    assert annotation_with_user.created_by.id == user.id
+
+    # Delete the user
+    crud.user.remove(db=db, id=user.id)
+
+    # Refresh annotation from database
+    updated_annotation = crud.annotation.get(db=db, id=annotation.id)
+
+    # Assertions - annotation should still exist but created_by_id should be NULL
+    assert updated_annotation is not None
+    assert updated_annotation.created_by_id is None
+    assert updated_annotation.description == "Test annotation with user"
+
+    # Verify created_by relationship is None after user deletion
+    updated_annotation_with_user = crud.annotation.get_with_created_by(
+        db=db, id=annotation.id
+    )
+    assert updated_annotation_with_user is not None
+    assert updated_annotation_with_user.created_by is None

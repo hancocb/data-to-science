@@ -1,12 +1,12 @@
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import and_, CheckConstraint, ForeignKey, UniqueConstraint
+from sqlalchemy import CheckConstraint, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ENUM, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
-from app.models.project_type import ProjectType
+from app.models.enums.project_type import ProjectType
 from app.schemas.project_member import Role
 
 
