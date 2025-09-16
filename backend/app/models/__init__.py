@@ -18,7 +18,7 @@ from .module_type import ModuleType
 from .project import Project
 from .project_member import ProjectMember
 from .project_module import ProjectModule
-from .project_type import ProjectType
+from .enums.project_type import ProjectType
 from .raw_data import RawData
 from .refresh_token import RefreshToken
 from .shortened_url import ShortenedUrl
