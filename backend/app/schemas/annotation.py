@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional, TYPE_CHECKING
 
 from geojson_pydantic import Feature
-from pydantic import BaseModel, Field, UUID4
+from pydantic import BaseModel, ConfigDict, Field, UUID4
 
 
 if TYPE_CHECKING:
@@ -30,10 +30,13 @@ class AnnotationUpdate(AnnotationBase):
 
 
 # properties shared by models stored in DB
-class AnnotationInDBBase(AnnotationBase, from_attributes=True):
+class AnnotationInDBBase(AnnotationBase):
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
     id: UUID4
     description: str
-    geom: Feature
+    # Map ORM attribute "feature_geojson" into response field "geom"
+    geom: Feature = Field(validation_alias="feature_geojson")
     data_product_id: UUID4
     created_by_id: Optional[UUID4] = None
     created_at: datetime

@@ -407,6 +407,82 @@ def can_read_write_delete_flight(
     return flight
 
 
+def can_read_data_product(
+    data_product_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_approved_user),
+    flight: models.Flight = Depends(can_read_flight),
+) -> models.DataProduct:
+    """Return data product if it belongs to the flight and user has access."""
+    data_product = crud.data_product.get(db, id=data_product_id)
+    if not data_product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
+        )
+    if data_product.flight_id != flight.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Data product does not belong to specified flight",
+        )
+    if not data_product.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
+        )
+    return data_product
+
+
+def can_read_write_data_product(
+    data_product_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_approved_user),
+    flight: models.Flight = Depends(can_read_write_flight),
+) -> models.DataProduct:
+    """Return data product if user has write access to the flight."""
+    if current_user.is_demo:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied"
+        )
+    data_product = crud.data_product.get(db, id=data_product_id)
+    if not data_product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
+        )
+    if data_product.flight_id != flight.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Data product does not belong to specified flight",
+        )
+    if not data_product.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
+        )
+    return data_product
+
+
+def can_read_write_delete_data_product(
+    data_product_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_approved_user),
+    flight: models.Flight = Depends(can_read_write_delete_flight),
+) -> models.DataProduct:
+    """Return data product if current user is project owner."""
+    if current_user.is_demo:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied"
+        )
+    data_product = crud.data_product.get(db, id=data_product_id)
+    if not data_product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
+        )
+    if data_product.flight_id != flight.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Data product does not belong to specified flight",
+        )
+    return data_product
+
+
 def get_ip_settings(request: Request) -> Union[MetashapeQueryParams, ODMQueryParams]:
     """Get IP settings based on backend value from request query params.
 

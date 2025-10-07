@@ -70,3 +70,8 @@ from .vector_layer import (
     VectorLayerUpdate,
     VectorLayerFeatureCollection,
 )
+
+# Rebuild models with forward references after all schemas are imported
+# This resolves forward references like "User", "DataProduct", "Tag", etc.
+Annotation.model_rebuild()
+AnnotationTag.model_rebuild()

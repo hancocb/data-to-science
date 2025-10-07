@@ -2,13 +2,13 @@ import uuid
 from datetime import datetime
 from typing import List, Optional, TYPE_CHECKING
 
-from geoalchemy2 import Geometry
-from sqlalchemy import DateTime, ForeignKey, Text, text
-from sqlalchemy.dialects.postgresql import ENUM, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from geoalchemy2 import Geometry, functions as geofunc
+from sqlalchemy import cast, DateTime, ForeignKey, func, Text
+from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
+from sqlalchemy.orm import column_property, Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
-from app.models.enums.visibility import Visibility, VisibilityEnum
+from app.models.enums.visibility import Visibility
 from app.models.utils.utcnow import utcnow
 
 
@@ -29,6 +29,16 @@ class Annotation(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     geom: Mapped[str] = mapped_column(
         Geometry(geometry_type="GEOMETRY", srid=4326), nullable=False
+    )
+    feature_geojson = column_property(
+        func.jsonb_build_object(
+            "type",
+            "Feature",
+            "geometry",
+            cast(geofunc.ST_AsGeoJSON(geom), JSONB),
+            "properties",
+            func.jsonb_build_object(),
+        )
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=utcnow(), nullable=False

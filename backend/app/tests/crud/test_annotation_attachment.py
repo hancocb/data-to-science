@@ -18,7 +18,6 @@ def test_create_annotation_attachment(db: Session) -> None:
         width_px=None,
         height_px=None,
         duration_seconds=None,
-        annotation_id=annotation.id,
     )
     attachment = crud.annotation_attachment.create_with_annotation(
         db=db, obj_in=attachment_in, annotation_id=annotation.id
@@ -39,7 +38,6 @@ def test_read_annotation_attachment(db: Session) -> None:
             width_px=None,
             height_px=None,
             duration_seconds=None,
-            annotation_id=annotation.id,
         ),
         annotation_id=annotation.id,
     )
@@ -61,7 +59,6 @@ def test_update_annotation_attachment(db: Session) -> None:
             width_px=None,
             height_px=None,
             duration_seconds=None,
-            annotation_id=annotation.id,
         ),
         annotation_id=annotation.id,
     )
@@ -87,7 +84,6 @@ def test_delete_annotation_attachment(db: Session) -> None:
             width_px=None,
             height_px=None,
             duration_seconds=None,
-            annotation_id=annotation.id,
         ),
         annotation_id=annotation.id,
     )

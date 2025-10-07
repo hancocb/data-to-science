@@ -66,7 +66,9 @@ def db_fixture() -> Generator:
         SQLALCHEMY_TEST_DATABASE_URI.unicode_string(), pool_pre_ping=True
     )
     Base.metadata.create_all(engine)
-    TestSessionLocal = sessionmaker(autoflush=False, bind=engine)
+    TestSessionLocal = sessionmaker(
+        autoflush=False, expire_on_commit=False, bind=engine
+    )
     try:
         db = TestSessionLocal()
         # Seed module types

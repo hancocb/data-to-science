@@ -3,6 +3,7 @@ from typing import Any, Sequence
 from uuid import UUID
 
 from fastapi.encoders import jsonable_encoder
+from geoalchemy2 import functions as geo_func
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -49,12 +50,63 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
             created_by_id=created_by_id,
         )
 
-        with db as session:
-            session.add(db_obj)
-            session.commit()
-            session.refresh(db_obj)
+        # Use the provided session without closing it prematurely. FastAPI
+        # keeps the session open for the duration of the request lifecycle.
+        db.add(db_obj)
+        db.commit()
+        db.refresh(db_obj)
 
         return db_obj
+
+    def get_with_created_by(self, db: Session, id: UUID) -> Annotation | None:
+        """Get an annotation with the created_by relationship loaded.
+
+        Args:
+            db (Session): Database session.
+            id (UUID): Annotation ID.
+
+        Returns:
+            Annotation | None: Annotation with created_by loaded, or None if not found.
+        """
+        statement = (
+            select(Annotation)
+            .options(
+                selectinload(Annotation.created_by),
+                selectinload(Annotation.attachments),
+                selectinload(Annotation.tag_rows),
+            )
+            .where(Annotation.id == id)
+        )
+
+        annotation = db.scalar(statement)
+
+        return annotation
+
+    def get_multi_by_data_product_id(
+        self, db: Session, data_product_id: UUID
+    ) -> Sequence[Annotation]:
+        """Return all annotations for a data product.
+
+        Args:
+            db (Session): Database session.
+            data_product_id (UUID): Data product ID.
+
+        Returns:
+            Sequence[Annotation]: List of annotations for the data product.
+        """
+        statement = (
+            select(Annotation)
+            .options(
+                selectinload(Annotation.created_by),
+                selectinload(Annotation.attachments),
+                selectinload(Annotation.tag_rows),
+            )
+            .where(Annotation.data_product_id == data_product_id)
+        )
+
+        annotations = db.scalars(statement).all()
+
+        return annotations
 
     def update(
         self,
@@ -98,51 +150,12 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
             if field != "geom" and hasattr(db_obj, field):
                 setattr(db_obj, field, value)
 
-        with db as session:
-            session.add(db_obj)
-            session.commit()
-            session.refresh(db_obj)
+        # Add and commit the updated annotation
+        db.add(db_obj)
+        db.commit()
+        db.refresh(db_obj)
 
         return db_obj
-
-    def get_multi_by_data_product_id(
-        self, db: Session, data_product_id: UUID
-    ) -> Sequence[Annotation]:
-        """Return all annotations for a data product.
-
-        Args:
-            db (Session): Database session.
-            data_product_id (UUID): Data product ID.
-
-        Returns:
-            Sequence[Annotation]: List of annotations for the data product.
-        """
-        statement = select(Annotation).where(
-            Annotation.data_product_id == data_product_id
-        )
-
-        with db as session:
-            annotations = session.scalars(statement).all()
-            return annotations
-
-    def get_with_created_by(self, db: Session, id: UUID) -> Annotation | None:
-        """Get an annotation with the created_by relationship loaded.
-
-        Args:
-            db (Session): Database session.
-            id (UUID): Annotation ID.
-
-        Returns:
-            Annotation | None: Annotation with created_by loaded, or None if not found.
-        """
-        statement = (
-            select(Annotation)
-            .options(selectinload(Annotation.created_by))
-            .where(Annotation.id == id)
-        )
-
-        with db as session:
-            return session.scalar(statement)
 
 
 annotation = CRUDAnnotation(Annotation)
