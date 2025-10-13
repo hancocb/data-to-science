@@ -22,11 +22,12 @@ class AnnotationBase(BaseModel):
 class AnnotationCreate(AnnotationBase):
     description: str = Field(min_length=1)
     geom: Feature
+    tags: List[str] = Field(default_factory=list)
 
 
 # properties to receive via API on update
 class AnnotationUpdate(AnnotationBase):
-    pass
+    tags: Optional[List[str]] = None
 
 
 # properties shared by models stored in DB

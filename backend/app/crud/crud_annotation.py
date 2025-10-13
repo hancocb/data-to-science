@@ -3,13 +3,15 @@ from typing import Any, Sequence
 from uuid import UUID
 
 from fastapi.encoders import jsonable_encoder
-from geoalchemy2 import functions as geo_func
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app import crud
 from app.crud.base import CRUDBase
 from app.models.annotation import Annotation
+from app.models.annotation_tag import AnnotationTag
 from app.schemas.annotation import AnnotationCreate, AnnotationUpdate
+from app.schemas.annotation_tag import AnnotationTagCreate
 
 
 class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
@@ -21,7 +23,7 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
         data_product_id: UUID,
         created_by_id: UUID | None = None,
     ) -> Annotation:
-        """Create a new annotation with proper geometry handling.
+        """Create a new annotation with proper geometry and tag handling.
 
         Args:
             db (Session): Database session.
@@ -30,7 +32,7 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
             created_by_id (UUID | None): ID of the user who created this annotation.
 
         Returns:
-            Annotation: Created annotation object.
+            Annotation: Created annotation object with tags.
         """
         # Convert to dict for processing
         obj_in_data = jsonable_encoder(obj_in)
@@ -56,7 +58,25 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
         db.commit()
         db.refresh(db_obj)
 
-        return db_obj
+        # Store annotation ID for later use
+        annotation_id = db_obj.id
+
+        # Handle tags if provided - normalize and deduplicate first
+        tags = obj_in_data.get("tags", [])
+        normalized_tags = {tag.strip().lower() for tag in tags if tag.strip()}
+
+        for tag_name in normalized_tags:
+            crud.annotation_tag.create_with_annotation(
+                db,
+                obj_in=AnnotationTagCreate(tag=tag_name),
+                annotation_id=annotation_id,
+            )
+
+        # Re-fetch the annotation with all relationships loaded
+        result = self.get_with_created_by(db, id=annotation_id)
+        if result is None:
+            raise RuntimeError(f"Annotation {annotation_id} not found after creation")
+        return result
 
     def get_with_created_by(self, db: Session, id: UUID) -> Annotation | None:
         """Get an annotation with the created_by relationship loaded.
@@ -73,7 +93,7 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
             .options(
                 selectinload(Annotation.created_by),
                 selectinload(Annotation.attachments),
-                selectinload(Annotation.tag_rows),
+                selectinload(Annotation.tag_rows).selectinload(AnnotationTag.tag),
             )
             .where(Annotation.id == id)
         )
@@ -99,7 +119,7 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
             .options(
                 selectinload(Annotation.created_by),
                 selectinload(Annotation.attachments),
-                selectinload(Annotation.tag_rows),
+                selectinload(Annotation.tag_rows).selectinload(AnnotationTag.tag),
             )
             .where(Annotation.data_product_id == data_product_id)
         )
@@ -115,7 +135,7 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
         db_obj: Annotation,
         obj_in: AnnotationUpdate | dict[str, Any],
     ) -> Annotation:
-        """Update an annotation with proper geometry handling.
+        """Update an annotation with proper geometry and tag handling.
 
         Args:
             db (Session): Database session.
@@ -145,9 +165,9 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
             geom = func.ST_Force2D(func.ST_GeomFromGeoJSON(json.dumps(geometry)))
             db_obj.geom = geom
 
-        # Update other simple fields (excluding geometry which we handled above)
+        # Update other simple fields first (excluding geometry and tags)
         for field, value in update_data.items():
-            if field != "geom" and hasattr(db_obj, field):
+            if field not in ("geom", "tags") and hasattr(db_obj, field):
                 setattr(db_obj, field, value)
 
         # Add and commit the updated annotation
@@ -155,7 +175,44 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
         db.commit()
         db.refresh(db_obj)
 
-        return db_obj
+        # Store annotation ID for later use
+        annotation_id = db_obj.id
+
+        # Handle tags update if provided
+        if "tags" in update_data:
+            new_tags = update_data.get("tags")
+            if new_tags is not None:
+                # Get current tags
+                current_annotation_tags = (
+                    crud.annotation_tag.get_multi_by_annotation_id(
+                        db, annotation_id=annotation_id
+                    )
+                )
+                current_tag_names = {
+                    at.tag.name.lower() for at in current_annotation_tags
+                }
+                # Normalize and deduplicate new tags
+                new_tag_names = {tag.strip().lower() for tag in new_tags if tag.strip()}
+
+                # Remove tags that are no longer in the list
+                for annotation_tag in current_annotation_tags:
+                    if annotation_tag.tag.name.lower() not in new_tag_names:
+                        crud.annotation_tag.remove(db, id=annotation_tag.id)
+
+                # Add new tags that aren't already present
+                for tag_name in new_tag_names:
+                    if tag_name not in current_tag_names:
+                        crud.annotation_tag.create_with_annotation(
+                            db,
+                            obj_in=AnnotationTagCreate(tag=tag_name),
+                            annotation_id=annotation_id,
+                        )
+
+        # Re-fetch the annotation with all relationships loaded
+        result = self.get_with_created_by(db, id=annotation_id)
+        if result is None:
+            raise RuntimeError(f"Annotation {annotation_id} not found after update")
+        return result
 
 
 annotation = CRUDAnnotation(Annotation)

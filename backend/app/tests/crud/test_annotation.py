@@ -27,8 +27,8 @@ def test_create_annotation(db: Session) -> None:
     )
 
     # Attach a tag to the annotation
-    tag = create_tag(db)
-    annotation_tag_in = AnnotationTagCreate(tag_id=tag.id)
+    tag_name = "point-annotation-tag"
+    annotation_tag_in = AnnotationTagCreate(tag=tag_name)
     annotation_tag = crud.annotation_tag.create_with_annotation(
         db=db, obj_in=annotation_tag_in, annotation_id=annotation.id
     )
@@ -42,7 +42,7 @@ def test_create_annotation(db: Session) -> None:
     assert annotation.geom is not None  # Geometry should be stored
     assert annotation.created_by_id is None  # No user specified
     assert annotation_tag.annotation_id == annotation.id
-    assert annotation_tag.tag_id == tag.id
+    assert annotation_tag.tag.name == tag_name
 
 
 def test_create_annotation_with_user(db: Session) -> None:
@@ -206,3 +206,246 @@ def test_annotation_created_by_id_set_to_null_when_user_deleted(db: Session) -> 
     )
     assert updated_annotation_with_user is not None
     assert updated_annotation_with_user.created_by is None
+
+
+def test_create_annotation_with_tags(db: Session) -> None:
+    """Test creating an annotation with tags in a single operation."""
+    from app.schemas.annotation import AnnotationCreate
+
+    sample_data_product = SampleDataProduct(db)
+    data_product = sample_data_product.obj
+
+    # Create annotation input with tags
+    annotation_in = create_annotation_in(
+        description="Annotation with tags",
+        geometry_type="Point",
+    )
+    # Add tags to the input
+    annotation_create = AnnotationCreate(
+        description=annotation_in.description,
+        geom=annotation_in.geom,
+        tags=["species", "flowering", "drought-resistant"],
+    )
+
+    # Create annotation with tags
+    annotation = crud.annotation.create_with_data_product(
+        db=db,
+        obj_in=annotation_create,
+        data_product_id=data_product.id,
+    )
+
+    # Assertions
+    assert annotation.id is not None
+    assert annotation.description == "Annotation with tags"
+
+    # Verify tags were created and associated
+    annotation_with_tags = crud.annotation.get_with_created_by(db=db, id=annotation.id)
+    assert annotation_with_tags is not None
+    assert len(annotation_with_tags.tag_rows) == 3
+
+    tag_names = {tag_row.tag.name for tag_row in annotation_with_tags.tag_rows}
+    assert tag_names == {"species", "flowering", "drought-resistant"}
+
+
+def test_create_annotation_with_duplicate_tags(db: Session) -> None:
+    """Test that creating annotation with duplicate tags handles them correctly."""
+    from app.schemas.annotation import AnnotationCreate
+
+    sample_data_product = SampleDataProduct(db)
+    data_product = sample_data_product.obj
+
+    # Create annotation input with duplicate tags
+    annotation_in = create_annotation_in(
+        description="Annotation with duplicate tags",
+        geometry_type="Point",
+    )
+    annotation_create = AnnotationCreate(
+        description=annotation_in.description,
+        geom=annotation_in.geom,
+        tags=["Species", "species", "SPECIES"],  # Same tag, different cases
+    )
+
+    # Create annotation
+    annotation = crud.annotation.create_with_data_product(
+        db=db,
+        obj_in=annotation_create,
+        data_product_id=data_product.id,
+    )
+
+    # Verify only one tag was created (tags are normalized to lowercase)
+    annotation_with_tags = crud.annotation.get_with_created_by(db=db, id=annotation.id)
+    assert annotation_with_tags is not None
+    assert len(annotation_with_tags.tag_rows) == 1
+    assert annotation_with_tags.tag_rows[0].tag.name == "species"
+
+
+def test_create_annotation_with_empty_tags_list(db: Session) -> None:
+    """Test creating annotation with empty tags list."""
+    from app.schemas.annotation import AnnotationCreate
+
+    sample_data_product = SampleDataProduct(db)
+    data_product = sample_data_product.obj
+
+    annotation_in = create_annotation_in(
+        description="Annotation with no tags",
+        geometry_type="Point",
+    )
+    annotation_create = AnnotationCreate(
+        description=annotation_in.description,
+        geom=annotation_in.geom,
+        tags=[],
+    )
+
+    annotation = crud.annotation.create_with_data_product(
+        db=db,
+        obj_in=annotation_create,
+        data_product_id=data_product.id,
+    )
+
+    annotation_with_tags = crud.annotation.get_with_created_by(db=db, id=annotation.id)
+    assert annotation_with_tags is not None
+    assert len(annotation_with_tags.tag_rows) == 0
+
+
+def test_update_annotation_add_tags(db: Session) -> None:
+    """Test adding tags to an existing annotation."""
+    # Create annotation without tags
+    annotation = create_annotation(
+        db=db, description="Original annotation", geometry_type="Point"
+    )
+
+    # Verify no tags initially
+    annotation_with_tags = crud.annotation.get_with_created_by(db=db, id=annotation.id)
+    assert annotation_with_tags is not None
+    assert len(annotation_with_tags.tag_rows) == 0
+
+    # Update to add tags
+    update_data = AnnotationUpdate(tags=["new-tag-1", "new-tag-2"])
+    updated_annotation = crud.annotation.update(
+        db=db, db_obj=annotation, obj_in=update_data
+    )
+
+    # Verify tags were added
+    annotation_with_tags = crud.annotation.get_with_created_by(
+        db=db, id=updated_annotation.id
+    )
+    assert annotation_with_tags is not None
+    assert len(annotation_with_tags.tag_rows) == 2
+    tag_names = {tag_row.tag.name for tag_row in annotation_with_tags.tag_rows}
+    assert tag_names == {"new-tag-1", "new-tag-2"}
+
+
+def test_update_annotation_remove_tags(db: Session) -> None:
+    """Test removing tags from an annotation."""
+    from app.schemas.annotation import AnnotationCreate
+
+    sample_data_product = SampleDataProduct(db)
+    data_product = sample_data_product.obj
+
+    # Create annotation with tags
+    annotation_in = create_annotation_in(
+        description="Annotation with tags to remove",
+        geometry_type="Point",
+    )
+    annotation_create = AnnotationCreate(
+        description=annotation_in.description,
+        geom=annotation_in.geom,
+        tags=["tag-1", "tag-2", "tag-3"],
+    )
+    annotation = crud.annotation.create_with_data_product(
+        db=db,
+        obj_in=annotation_create,
+        data_product_id=data_product.id,
+    )
+
+    # Verify tags were created
+    annotation_with_tags = crud.annotation.get_with_created_by(db=db, id=annotation.id)
+    assert annotation_with_tags is not None
+    assert len(annotation_with_tags.tag_rows) == 3
+
+    # Update to remove all tags
+    update_data = AnnotationUpdate(tags=[])
+    updated_annotation = crud.annotation.update(
+        db=db, db_obj=annotation, obj_in=update_data
+    )
+
+    # Verify tags were removed
+    annotation_with_tags = crud.annotation.get_with_created_by(
+        db=db, id=updated_annotation.id
+    )
+    assert annotation_with_tags is not None
+    assert len(annotation_with_tags.tag_rows) == 0
+
+
+def test_update_annotation_modify_tags(db: Session) -> None:
+    """Test modifying tags on an annotation (remove some, add others, keep some)."""
+    from app.schemas.annotation import AnnotationCreate
+
+    sample_data_product = SampleDataProduct(db)
+    data_product = sample_data_product.obj
+
+    # Create annotation with initial tags
+    annotation_in = create_annotation_in(
+        description="Annotation with tags to modify",
+        geometry_type="Point",
+    )
+    annotation_create = AnnotationCreate(
+        description=annotation_in.description,
+        geom=annotation_in.geom,
+        tags=["keep", "remove-1", "remove-2"],
+    )
+    annotation = crud.annotation.create_with_data_product(
+        db=db,
+        obj_in=annotation_create,
+        data_product_id=data_product.id,
+    )
+
+    # Update tags: keep "keep", remove "remove-1" and "remove-2", add "new-1" and "new-2"
+    update_data = AnnotationUpdate(tags=["keep", "new-1", "new-2"])
+    updated_annotation = crud.annotation.update(
+        db=db, db_obj=annotation, obj_in=update_data
+    )
+
+    # Verify correct tags
+    annotation_with_tags = crud.annotation.get_with_created_by(
+        db=db, id=updated_annotation.id
+    )
+    assert annotation_with_tags is not None
+    assert len(annotation_with_tags.tag_rows) == 3
+    tag_names = {tag_row.tag.name for tag_row in annotation_with_tags.tag_rows}
+    assert tag_names == {"keep", "new-1", "new-2"}
+
+
+def test_update_annotation_tags_reuses_existing_tags(db: Session) -> None:
+    """Test that updating annotation reuses existing tags from database."""
+    from app.schemas.annotation import AnnotationCreate
+
+    sample_data_product = SampleDataProduct(db)
+    data_product = sample_data_product.obj
+
+    # Create a tag that already exists
+    existing_tag = create_tag(db, name="existing-tag")
+    existing_tag_id = existing_tag.id
+
+    # Create annotation with the existing tag
+    annotation_in = create_annotation_in(
+        description="Annotation reusing tags",
+        geometry_type="Point",
+    )
+    annotation_create = AnnotationCreate(
+        description=annotation_in.description,
+        geom=annotation_in.geom,
+        tags=["existing-tag"],
+    )
+    annotation = crud.annotation.create_with_data_product(
+        db=db,
+        obj_in=annotation_create,
+        data_product_id=data_product.id,
+    )
+
+    # Verify the tag was reused, not created new
+    annotation_with_tags = crud.annotation.get_with_created_by(db=db, id=annotation.id)
+    assert annotation_with_tags is not None
+    assert len(annotation_with_tags.tag_rows) == 1
+    assert annotation_with_tags.tag_rows[0].tag_id == existing_tag_id
+    assert annotation_with_tags.tag_rows[0].tag.name == "existing-tag"

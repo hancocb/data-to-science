@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
-from pydantic import BaseModel, UUID4
+from pydantic import BaseModel, Field, UUID4, field_validator
 
 if TYPE_CHECKING:
     from app.schemas.tag import Tag
@@ -13,8 +13,17 @@ class AnnotationTagBase(BaseModel):
 
 
 # properties to receive via API on creation
-class AnnotationTagCreate(AnnotationTagBase):
-    tag_id: UUID4
+class AnnotationTagCreate(BaseModel):
+    tag: str = Field(min_length=1, max_length=255)
+
+    @field_validator("tag")
+    @classmethod
+    def validate_tag(cls, v: str) -> str:
+        """Normalize tag to lowercase and strip whitespace."""
+        v = v.strip()
+        if not v:
+            raise ValueError("Tag cannot be empty or only whitespace")
+        return v.lower()
 
 
 # properties to receive via API on update

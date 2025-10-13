@@ -600,3 +600,199 @@ def test_delete_annotation_from_different_data_product(
     )
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+def test_create_annotation_with_tags(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test creating an annotation with tags via API."""
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db, user=current_user)
+    annotation_in = create_annotation_in(description="Annotation with tags")
+
+    # Add tags to the request
+    annotation_data = annotation_in.model_dump()
+    annotation_data["tags"] = ["species", "flowering", "drought-resistant"]
+
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations",
+        json=annotation_data,
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    response_data = response.json()
+    assert "id" in response_data
+    assert response_data["description"] == "Annotation with tags"
+    assert "tag_rows" in response_data
+    assert len(response_data["tag_rows"]) == 3
+
+    tag_names = {tag_row["tag"]["name"] for tag_row in response_data["tag_rows"]}
+    assert tag_names == {"species", "flowering", "drought-resistant"}
+
+
+def test_create_annotation_with_empty_tags(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test creating an annotation with empty tags list via API."""
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db, user=current_user)
+    annotation_in = create_annotation_in(description="Annotation without tags")
+
+    annotation_data = annotation_in.model_dump()
+    annotation_data["tags"] = []
+
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations",
+        json=annotation_data,
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    response_data = response.json()
+    assert "tag_rows" in response_data
+    assert len(response_data["tag_rows"]) == 0
+
+
+def test_update_annotation_add_tags_via_api(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test adding tags to an existing annotation via API."""
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db, user=current_user)
+    annotation = create_annotation(
+        db,
+        description="Annotation to add tags to",
+        data_product_id=data_product.obj.id,
+        created_by_id=current_user.id,
+    )
+
+    update_data = {"tags": ["new-tag-1", "new-tag-2"]}
+    response = client.put(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations/{annotation.id}",
+        json=update_data,
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    response_data = response.json()
+    assert "tag_rows" in response_data
+    assert len(response_data["tag_rows"]) == 2
+
+    tag_names = {tag_row["tag"]["name"] for tag_row in response_data["tag_rows"]}
+    assert tag_names == {"new-tag-1", "new-tag-2"}
+
+
+def test_update_annotation_remove_tags_via_api(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test removing tags from an annotation via API."""
+    from app.schemas.annotation import AnnotationCreate
+
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db, user=current_user)
+
+    # Create annotation with tags using CRUD
+    annotation_in = create_annotation_in(description="Annotation with tags to remove")
+    annotation_create = AnnotationCreate(
+        description=annotation_in.description,
+        geom=annotation_in.geom,
+        tags=["tag-1", "tag-2", "tag-3"],
+    )
+    annotation = crud.annotation.create_with_data_product(
+        db=db,
+        obj_in=annotation_create,
+        data_product_id=data_product.obj.id,
+        created_by_id=current_user.id,
+    )
+
+    # Update to remove all tags via API
+    update_data: dict = {"tags": []}
+    response = client.put(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations/{annotation.id}",
+        json=update_data,
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    response_data = response.json()
+    assert "tag_rows" in response_data
+    assert len(response_data["tag_rows"]) == 0
+
+
+def test_update_annotation_modify_tags_via_api(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test modifying tags on an annotation via API."""
+    from app.schemas.annotation import AnnotationCreate
+
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db, user=current_user)
+
+    # Create annotation with initial tags
+    annotation_in = create_annotation_in(description="Annotation with tags to modify")
+    annotation_create = AnnotationCreate(
+        description=annotation_in.description,
+        geom=annotation_in.geom,
+        tags=["keep", "remove-1", "remove-2"],
+    )
+    annotation = crud.annotation.create_with_data_product(
+        db=db,
+        obj_in=annotation_create,
+        data_product_id=data_product.obj.id,
+        created_by_id=current_user.id,
+    )
+
+    # Update tags: keep "keep", remove "remove-1" and "remove-2", add "new-1" and "new-2"
+    update_data = {"tags": ["keep", "new-1", "new-2"]}
+    response = client.put(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations/{annotation.id}",
+        json=update_data,
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    response_data = response.json()
+    assert "tag_rows" in response_data
+    assert len(response_data["tag_rows"]) == 3
+
+    tag_names = {tag_row["tag"]["name"] for tag_row in response_data["tag_rows"]}
+    assert tag_names == {"keep", "new-1", "new-2"}
+
+
+def test_get_annotation_returns_tags(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test that getting an annotation returns its tags."""
+    from app.schemas.annotation import AnnotationCreate
+
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db, user=current_user)
+
+    # Create annotation with tags
+    annotation_in = create_annotation_in(description="Annotation with tags")
+    annotation_create = AnnotationCreate(
+        description=annotation_in.description,
+        geom=annotation_in.geom,
+        tags=["tag-a", "tag-b"],
+    )
+    annotation = crud.annotation.create_with_data_product(
+        db=db,
+        obj_in=annotation_create,
+        data_product_id=data_product.obj.id,
+        created_by_id=current_user.id,
+    )
+
+    # Get the annotation via API
+    response = client.get(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations/{annotation.id}"
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    response_data = response.json()
+    assert "tag_rows" in response_data
+    assert len(response_data["tag_rows"]) == 2
+
+    tag_names = {tag_row["tag"]["name"] for tag_row in response_data["tag_rows"]}
+    assert tag_names == {"tag-a", "tag-b"}
