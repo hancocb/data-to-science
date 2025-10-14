@@ -5,6 +5,7 @@ import {
   ArrowUpOnSquareIcon,
   CursorArrowRaysIcon,
   FolderPlusIcon,
+  PlusIcon,
   LinkIcon,
   TrashIcon,
 } from '@heroicons/react/24/outline';
@@ -61,6 +62,12 @@ function getIcon(iconName: string) {
           <FolderPlusIcon className="h-6 w-6" aria-hidden="true" />
         </span>
       );
+    case 'plus':
+      return (
+        <span className="pointer-events-none absolute inset-y-0 start-0 grid w-1/4 place-content-center text-white">
+          <PlusIcon className="h-4 w-4" aria-hidden="true" />
+        </span>
+      );
     case 'share':
       return (
         <span className="pointer-events-none absolute inset-y-0 end-0 grid w-1/4 place-content-center text-white">
@@ -88,8 +95,8 @@ const getButtonSizeClassNames = (size: string) =>
   size === 'xs'
     ? 'text-xs font-semibold py-0.5 px-2'
     : size === 'sm'
-    ? 'text-sm font-bold py-1.5 px-4'
-    : 'text-xl font-extrabold py-2 px-4';
+      ? 'text-sm font-bold py-1.5 px-4'
+      : 'text-xl font-extrabold py-2 px-4';
 
 export function LinkOutlineButton({
   children,
@@ -164,8 +171,8 @@ export function Button({
                   icon === 'trash'
                     ? 'bg-red-600 hover:bg-red-700 border-red-700 hover:border-red-800'
                     : cancel === true
-                    ? 'text-gray-700 bg-gray-200 hover:bg-gray-300 border-gray-300 hover:border-gray-400'
-                    : 'bg-accent3 hover:bg-accent3-dark border-accent3 hover:border-accent3-dark',
+                      ? 'text-gray-700 bg-gray-200 hover:bg-gray-300 border-gray-300 hover:border-gray-400'
+                      : 'bg-accent3 hover:bg-accent3-dark border-accent3 hover:border-accent3-dark',
                   'border-2 rounded-md w-full'
                 )
               : 'border-2 rounded-md w-full'

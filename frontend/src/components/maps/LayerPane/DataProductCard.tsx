@@ -1,5 +1,6 @@
 import { useMapContext } from '../MapContext';
 
+import AnnotationsPane from './AnnotationsPane';
 import LayerCard from './LayerCard';
 import RasterStats from './RasterStats';
 import RasterSymbologySettings from '../RasterSymbologySettings';
@@ -89,6 +90,11 @@ export default function DataProductCard({
           </div>
         ) : null}
       </div>
+      {dataProduct.data_type !== 'point_cloud' &&
+      dataProduct.data_type !== 'panoramic' &&
+      dataProduct.data_type !== '3dgs' ? (
+        <AnnotationsPane />
+      ) : null}
     </LayerCard>
   );
 }

@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import LayerPane from './LayerPane';
 
+import { AnnotationProvider } from './contexts/AnnotationContext';
 import { MapContextProvider } from './MapContext';
 import { MapApiKeysContextProvider } from './MapApiKeysContext';
 import { MapLayerProvider } from './MapLayersContext';
@@ -21,26 +22,28 @@ export default function MapLayout() {
       <MapContextProvider>
         <ProjectLoader />
         <MapLayerProvider>
-          <RasterSymbologyProvider>
-            {/* sidebar */}
-            <div className="flex flex-row h-full">
-              <div
-                className={classNames(
-                  hidePane ? 'w-[48px]' : 'w-[450px]',
-                  'shrink-0 bg-slate-100'
-                )}
-              >
-                <LayerPane
-                  hidePane={hidePane}
-                  toggleHidePane={toggleHidePane}
-                />
+          <AnnotationProvider>
+            <RasterSymbologyProvider>
+              {/* sidebar */}
+              <div className="flex flex-row h-full">
+                <div
+                  className={classNames(
+                    hidePane ? 'w-[48px]' : 'w-[450px]',
+                    'shrink-0 bg-slate-100'
+                  )}
+                >
+                  <LayerPane
+                    hidePane={hidePane}
+                    toggleHidePane={toggleHidePane}
+                  />
+                </div>
+                {/* page content */}
+                <div className="w-full h-full">
+                  <MapViewMode />
+                </div>
               </div>
-              {/* page content */}
-              <div className="w-full h-full">
-                <MapViewMode />
-              </div>
-            </div>
-          </RasterSymbologyProvider>
+            </RasterSymbologyProvider>
+          </AnnotationProvider>
         </MapLayerProvider>
       </MapContextProvider>
     </MapApiKeysContextProvider>

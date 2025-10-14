@@ -17,6 +17,7 @@ import ProjectPopup from './ProjectPopup';
 import ProjectRasterTiles from './ProjectRasterTiles';
 import ProjectVectorTiles from './ProjectVectorTiles';
 
+import { useAnnotationContext } from './contexts/AnnotationContext';
 import { useMapContext } from './MapContext';
 import { useMapApiKeys } from './MapApiKeysContext';
 import { MapLayerProps } from './MapLayersContext';
@@ -50,6 +51,7 @@ export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
     null
   );
 
+  const { active } = useAnnotationContext();
   const {
     activeDataProduct,
     activeProject,
@@ -274,6 +276,7 @@ export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
 
       {/* General controls */}
       {!activeProject && <GeocoderControl />}
+
       <NavigationControl />
       <ScaleControl />
     </Map>

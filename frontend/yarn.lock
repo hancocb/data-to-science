@@ -2201,10 +2201,17 @@
     "@types/babel__core" "^7.20.5"
     react-refresh "^0.14.2"
 
+<<<<<<< HEAD
 "@watergis/maplibre-gl-terradraw@^1.9.0":
   version "1.9.0"
   resolved "https://registry.yarnpkg.com/@watergis/maplibre-gl-terradraw/-/maplibre-gl-terradraw-1.9.0.tgz#e33c4fb5ddd49972571a36e1457bf2f85395f20e"
   integrity sha512-kNZVlHWTkF7wLFpDAqWnqrsx+KOYdOCqBs3G5SBG/yaHLPeKLnur8pZ9ypHo2wNT+NnYlqHFmNKJBPGZYmK4Iw==
+=======
+"@watergis/maplibre-gl-terradraw@^1.8.3":
+  version "1.8.3"
+  resolved "https://registry.yarnpkg.com/@watergis/maplibre-gl-terradraw/-/maplibre-gl-terradraw-1.8.3.tgz#7fb67739f6e98bc05e6c0b63aed866e05af5e1a4"
+  integrity sha512-Rcl7QOoCQLrJVWHiXqWcIxv8PFjBuRXz3G0ZprTnJHetozCUUZ7FsQbD9RTso8VmIjYvv6NYNG4siMcIC6WIiw==
+>>>>>>> 3b357795 (early work on annotation ui and measurement tool)
 
 "@webgpu/types@^0.1.60":
   version "0.1.64"
