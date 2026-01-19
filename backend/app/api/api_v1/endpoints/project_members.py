@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app import crud, models, schemas
 from app.api import deps
-from app.models.project_type import ProjectType
+from app.models.enums.project_type import ProjectType
 from app.schemas.role import Role
 
 router = APIRouter()

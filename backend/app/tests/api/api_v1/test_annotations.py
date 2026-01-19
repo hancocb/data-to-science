@@ -13,7 +13,6 @@ from app.tests.utils.annotation import (
 )
 from app.tests.utils.data_product import SampleDataProduct
 from app.tests.utils.project_member import create_project_member
-from app.tests.utils.user import create_user
 
 
 def test_create_annotation_with_project_owner_role(
@@ -48,7 +47,7 @@ def test_create_annotation_with_project_manager_role(
     create_project_member(
         db,
         member_id=current_user.id,
-        project_id=data_product.project.id,
+        project_uuid=data_product.project.id,
         role=Role.MANAGER,
     )
     annotation_in = create_annotation_in(description="Manager's annotation")
@@ -74,7 +73,7 @@ def test_create_annotation_with_project_viewer_role(
     create_project_member(
         db,
         member_id=current_user.id,
-        project_id=data_product.project.id,
+        project_uuid=data_product.project.id,
         role=Role.VIEWER,
     )
     annotation_in = create_annotation_in(description="Viewer's annotation")
@@ -162,7 +161,7 @@ def test_get_annotation_by_id_with_project_viewer_role(
     create_project_member(
         db,
         member_id=current_user.id,
-        project_id=data_product.project.id,
+        project_uuid=data_product.project.id,
         role=Role.VIEWER,
     )
     annotation = create_annotation(db, data_product_id=data_product.obj.id)
@@ -266,7 +265,7 @@ def test_get_annotations_with_project_viewer_role(
     create_project_member(
         db,
         member_id=current_user.id,
-        project_id=data_product.project.id,
+        project_uuid=data_product.project.id,
         role=Role.VIEWER,
     )
     create_multiple_annotations(db, count=2, data_product_id=data_product.obj.id)
@@ -350,7 +349,7 @@ def test_update_annotation_with_project_manager_role(
     create_project_member(
         db,
         member_id=current_user.id,
-        project_id=data_product.project.id,
+        project_uuid=data_product.project.id,
         role=Role.MANAGER,
     )
     annotation = create_annotation(
@@ -378,7 +377,7 @@ def test_update_annotation_with_project_viewer_role(
     create_project_member(
         db,
         member_id=current_user.id,
-        project_id=data_product.project.id,
+        project_uuid=data_product.project.id,
         role=Role.VIEWER,
     )
     annotation = create_annotation(db, data_product_id=data_product.obj.id)
@@ -514,7 +513,7 @@ def test_delete_annotation_with_project_manager_role(
     create_project_member(
         db,
         member_id=current_user.id,
-        project_id=data_product.project.id,
+        project_uuid=data_product.project.id,
         role=Role.MANAGER,
     )
     annotation = create_annotation(db, data_product_id=data_product.obj.id)
@@ -536,7 +535,7 @@ def test_delete_annotation_with_project_viewer_role(
     create_project_member(
         db,
         member_id=current_user.id,
-        project_id=data_product.project.id,
+        project_uuid=data_product.project.id,
         role=Role.VIEWER,
     )
     annotation = create_annotation(db, data_product_id=data_product.obj.id)

@@ -12,7 +12,7 @@ from app.core.exceptions import PermissionDenied, ResourceNotFound
 from app.crud.base import CRUDBase
 from app.models.indoor_project import IndoorProject
 from app.models.project_member import ProjectMember
-from app.models.project_type import ProjectType
+from app.models.enums.project_type import ProjectType
 from app.models.team_member import TeamMember
 from app.models.utils.utcnow import utcnow
 from app.schemas.indoor_project import (
@@ -209,12 +209,7 @@ class CRUDIndoorProject(
         statement = (
             select(IndoorProject, ProjectMember)
             .join(IndoorProject.indoor_members)
-            .where(
-                and_(
-                    IndoorProject.is_active,
-                    ProjectMember.member_id == user_id
-                )
-            )
+            .where(and_(IndoorProject.is_active, ProjectMember.member_id == user_id))
         )
 
         with db as session:
