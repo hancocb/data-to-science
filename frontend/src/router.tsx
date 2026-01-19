@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter } from 'react-router';
 
 // pages and data loaders
 import Dashboard from './components/pages/admin/Dashboard';
@@ -19,17 +19,25 @@ import DashboardUsers, {
   loader as dashboardUsersLoader,
 } from './components/pages/admin/DashboardUsers';
 import ErrorPage from './components/ErrorPage';
-import FieldCampaignCreate from './components/pages/projects/fieldCampaigns/FieldCampaignCreate';
+import FieldCampaignCreate from './components/pages/workspace/projects/fieldCampaigns/FieldCampaignCreate';
 import FieldCampaignForm, {
   loader as fieldCampaignLoader,
-} from './components/pages/projects/fieldCampaigns/FieldCampaignForm';
+} from './components/pages/workspace/projects/fieldCampaigns/FieldCampaignForm';
 import FlightData, {
   loader as flightDataLoader,
-} from './components/pages/projects/flights/FlightData';
+} from './components/pages/workspace/projects/flights/FlightData';
 import FlightForm, {
   loader as flightFormLoader,
-} from './components/pages/projects/flights/FlightForm';
-import IForesterLayout from './components/pages/projects/iForester/IForesterLayout';
+} from './components/pages/workspace/projects/flights/FlightForm';
+import IndoorProjectDetail, {
+  loader as indoorProjectDetailLoader,
+} from './components/pages/workspace/indoorProjects/IndoorProjectDetail';
+import IndoorProjectPlantDetail, {
+  loader as indoorProjectPlantDetailLoader,
+} from './components/pages/workspace/indoorProjects/IndoorProjectPlantDetail';
+import IndoorProjectAccess from './components/pages/workspace/indoorProjects/IndoorProjectAccess';
+import IndoorProjectLayout from './components/pages/workspace/indoorProjects/IndoorProjectLayout';
+import IForesterLayout from './components/pages/workspace/projects/iForester/IForesterLayout';
 import Landing from './components/Landing';
 import LoginForm from './components/pages/auth/LoginForm';
 import Logout from './components/pages/auth/Logout';
@@ -38,18 +46,19 @@ import ShareMap from './components/maps/ShareMap';
 import PasswordRecovery from './components/pages/auth/PasswordRecovery';
 import PasswordResetForm from './components/pages/auth/PasswordResetForm';
 import Profile from './components/pages/auth/Profile';
-import ProjectAccess from './components/pages/projects/ProjectAccess';
+import ProjectAccess from './components/pages/workspace/projects/ProjectAccess';
 import ProjectDetail, {
   loader as projectDetailLoader,
-} from './components/pages/projects/ProjectDetail';
-import ProjectLayout from './components/pages/projects/ProjectLayout';
-import ProjectModules from './components/pages/projects/ProjectModules';
+} from './components/pages/workspace/projects/ProjectDetail';
+import ProjectLayout from './components/pages/workspace/projects/ProjectLayout';
+import ProjectModules from './components/pages/workspace/projects/ProjectModules';
 import ProjectSTACPublishing, {
   loader as stacPublishingLoader,
-} from './components/pages/projects/stac/ProjectSTACPublishing';
-import STACDisabled from './components/pages/projects/stac/STACDisabled';
+} from './components/pages/workspace/projects/stac/ProjectSTACPublishing';
+import STACDisabled from './components/pages/workspace/projects/stac/STACDisabled';
 import RegistrationForm from './components/pages/auth/RegistrationForm';
 import { RasterSymbologyProvider } from './components/maps/RasterSymbologyContext';
+import ShareLCCViewer from './components/maps/ShareLCCViewer';
 import SharePanoViewer from './components/maps/SharePanoViewer';
 import SharePlayCanvasglTFViewer from './components/maps/SharePlayCanvasglTFViewer';
 import SharePotreeViewer from './components/maps/SharePotreeViewer';
@@ -128,6 +137,11 @@ export const router = createBrowserRouter(
           path: '/sharepotree',
           element: <RootProtected />,
           children: [{ path: '/sharepotree', element: <SharePotreeViewer /> }],
+        },
+        {
+          path: '/sharelcc',
+          element: <RootProtected />,
+          children: [{ path: '/sharelcc', element: <ShareLCCViewer /> }],
         },
       ],
     },
@@ -227,6 +241,31 @@ export const router = createBrowserRouter(
             },
           ],
         },
+        {
+          path: '/indoor_projects',
+          element: <IndoorProjectLayout />,
+          children: [
+            {
+              path: '/indoor_projects',
+              element: <Workspace />,
+              loader: workspaceLoader,
+            },
+            {
+              path: '/indoor_projects/:indoorProjectId',
+              element: <IndoorProjectDetail />,
+              loader: indoorProjectDetailLoader,
+            },
+            {
+              path: '/indoor_projects/:indoorProjectId/access',
+              element: <IndoorProjectAccess />,
+            },
+            {
+              path: '/indoor_projects/:indoorProjectId/uploaded/:indoorProjectDataId/plants/:indoorProjectPlantId',
+              element: <IndoorProjectPlantDetail />,
+              loader: indoorProjectPlantDetailLoader,
+            },
+          ],
+        },
       ],
     },
     {
@@ -275,14 +314,5 @@ export const router = createBrowserRouter(
         },
       ],
     },
-  ],
-  {
-    future: {
-      v7_fetcherPersist: true,
-      v7_normalizeFormMethod: true,
-      v7_relativeSplatPath: true,
-      v7_skipActionErrorRevalidation: true,
-      v7_partialHydration: true,
-    },
-  }
+  ]
 );

@@ -23,7 +23,12 @@ from sqlalchemy.orm import Session
 
 from app import crud, models, schemas
 from app.api import deps
-from app.api.utils import sanitize_file_name, get_tile_url_with_signed_payload
+from app.api.utils import (
+    sanitize_file_name,
+    get_tile_url_with_signed_payload,
+    save_vector_layer_parquet,
+    save_vector_layer_flatgeobuf,
+)
 from app.core.config import settings
 from app.tasks.upload_tasks import upload_vector_layer
 from app.utils.job_manager import JobManager
@@ -224,6 +229,8 @@ def read_vector_layers(
                 "geom_type": layer[2],
                 "signed_url": get_tile_url_with_signed_payload(layer[0]),
                 "preview_url": get_preview_url(str(project.id), layer[0]),
+                "parquet_url": get_parquet_url(str(project.id), layer[0]),
+                "fgb_url": get_fgb_url(str(project.id), layer[0]),
             }
             for layer in vector_layers
         ]
@@ -248,20 +255,13 @@ def download_vector_layer(
         "features": [feature.model_dump() for feature in features],
     }
 
-    # Get original filename from first feature's properties
-    layer_name = (
-        features[0].properties.get("layer_name", "feature_collection")
-        if features and features[0].properties
-        else "feature_collection"
-    )
-
     if format == "shp":
         # Convert GeoJSON dict to GeoDataFrame
         gdf = gpd.GeoDataFrame.from_features(features)
 
         # Create temporary directory for shapefile zip
         temp_dir = tempfile.mkdtemp()
-        shp_file_path = os.path.join(temp_dir, Path(layer_name).stem + ".shp")
+        shp_file_path = os.path.join(temp_dir, f"{layer_id}.shp")
 
         try:
             # Export GeoDataFrame to shapefile
@@ -298,7 +298,7 @@ def download_vector_layer(
         return FileResponse(
             zip_file_path,
             media_type="application/zip",
-            filename=Path(layer_name).stem + ".zip",
+            filename=f"{layer_id}.zip",
         )
     else:
         # Create FeatureCollection with GeoJSON features
@@ -323,7 +323,7 @@ def download_vector_layer(
         return FileResponse(
             temp_file_path,
             media_type="application/geo+json",
-            filename=Path(layer_name).stem + ".geojson",
+            filename=f"{layer_id}.geojson",
         )
 
 
@@ -387,6 +387,28 @@ def create_vector_layer_from_geojson(
             detail="Unable to create vector layer",
         )
 
+    # Generate GeoParquet file for the vector layer
+    if features:
+        layer_id = features[0].properties.get("layer_id")
+        if layer_id:
+            static_dir = get_static_dir()
+            # Convert features back to GeoDataFrame
+            gdf_for_formats = gpd.GeoDataFrame.from_features(features, crs="EPSG:4326")
+
+            # Generate GeoParquet file
+            try:
+                save_vector_layer_parquet(project.id, layer_id, gdf_for_formats, static_dir)
+                logger.info(f"Successfully generated parquet file for layer {layer_id}")
+            except Exception:
+                logger.exception(f"Failed to generate parquet for layer {layer_id}")
+
+            # Generate FlatGeobuf file
+            try:
+                save_vector_layer_flatgeobuf(project.id, layer_id, gdf_for_formats, static_dir)
+                logger.info(f"Successfully generated FlatGeobuf file for layer {layer_id}")
+            except Exception:
+                logger.exception(f"Failed to generate FlatGeobuf for layer {layer_id}")
+
     # Build response with metadata
     if len(features) > 0:
         layer_id = features[0].properties.get("layer_id", "undefined")
@@ -405,6 +427,65 @@ def create_vector_layer_from_geojson(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="No features created",
         )
+
+
+@router.put(
+    "/{layer_id}",
+    response_model=schemas.vector_layer.VectorLayerFeatureCollection,
+)
+def update_vector_layer(
+    layer_id: str,
+    vector_layer_in: schemas.vector_layer.VectorLayerUpdate,
+    project: models.Project = Depends(deps.can_read_write_project),
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """Update a vector layer's layer_name.
+
+    Args:
+        layer_id: Layer ID for the vector layer to update
+        vector_layer_in: Update schema with new layer_name
+        project: Project the vector layer belongs to
+        db: Database session
+
+    Returns:
+        VectorLayerFeatureCollection: Updated vector layer as a FeatureCollection with metadata
+
+    Raises:
+        HTTPException: If layer not found or update fails
+    """
+    # Update layer_name for all features in the vector layer
+    try:
+        features = crud.vector_layer.update_layer_name_by_id(
+            db,
+            project_id=project.id,
+            layer_id=layer_id,
+            layer_name=vector_layer_in.layer_name,
+        )
+    except Exception:
+        logger.exception("Failed to update vector layer")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to update vector layer",
+        )
+
+    # Check if any features were found
+    if len(features) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Vector layer not found",
+        )
+
+    # Build response with metadata
+    feature_collection = {
+        "type": "FeatureCollection",
+        "features": features,
+        "metadata": {
+            "preview_url": f"{settings.API_DOMAIN}{settings.STATIC_DIR}"
+            f"/projects/{project.id}/vector/{layer_id}"
+            f"/preview.png",
+        },
+    }
+    return feature_collection
 
 
 @router.delete("/{layer_id}", status_code=status.HTTP_200_OK)
@@ -506,3 +587,35 @@ def get_preview_url(project_id: str, layer_id: str) -> str:
     base_static_url = f"{settings.API_DOMAIN}{static_dir}"
 
     return f"{base_static_url}/projects/{project_id}/vector/{layer_id}/preview.png"
+
+
+def get_parquet_url(project_id: str, layer_id: str) -> str:
+    """Returns URL for vector layer GeoParquet file.
+
+    Args:
+        project_id (str): Unique project ID.
+        layer_id (str): Unique layer ID.
+
+    Returns:
+        str: URL to vector layer GeoParquet file.
+    """
+    static_dir = get_static_dir()
+    base_static_url = f"{settings.API_DOMAIN}{static_dir}"
+
+    return f"{base_static_url}/projects/{project_id}/vector/{layer_id}/{layer_id}.parquet"
+
+
+def get_fgb_url(project_id: str, layer_id: str) -> str:
+    """Returns URL for vector layer FlatGeobuf file.
+
+    Args:
+        project_id (str): Unique project ID.
+        layer_id (str): Unique layer ID.
+
+    Returns:
+        str: URL to vector layer FlatGeobuf file.
+    """
+    static_dir = get_static_dir()
+    base_static_url = f"{settings.API_DOMAIN}{static_dir}"
+
+    return f"{base_static_url}/projects/{project_id}/vector/{layer_id}/{layer_id}.fgb"

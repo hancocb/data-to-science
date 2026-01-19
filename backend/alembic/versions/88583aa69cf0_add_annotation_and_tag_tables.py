@@ -1,7 +1,7 @@
 """add annotation and tag tables
 
 Revision ID: 88583aa69cf0
-Revises: 884e43c58053
+Revises: 560e396bce4f
 Create Date: 2025-09-15 14:30:55.548283
 
 """
@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = "88583aa69cf0"
-down_revision: str | None = "884e43c58053"
+down_revision: str | None = "560e396bce4f"
 branch_labels: str | None = None
 depends_on: str | None = None
 

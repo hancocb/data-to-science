@@ -255,9 +255,12 @@ def test_get_project_with_owner_role(
     assert str(project.harvest_date) == response_data["harvest_date"]
     assert response_data["location_id"]
     assert response_data["role"] == "owner"
-    # created_by should be owner's full name
-    owner_full_name = f"{current_user.first_name} {current_user.last_name}"
-    assert response_data.get("created_by") == owner_full_name
+    # created_by should be owner's details
+    assert response_data.get("created_by") == {
+        "first_name": current_user.first_name,
+        "last_name": current_user.last_name,
+        "email": current_user.email,
+    }
 
 
 def test_get_project_with_manager_role(
@@ -266,7 +269,7 @@ def test_get_project_with_manager_role(
     current_user = get_current_user(db, normal_user_access_token)
     project = create_project(db)
     create_project_member(
-        db, email=current_user.email, project_id=project.id, role=Role.MANAGER
+        db, email=current_user.email, project_uuid=project.id, role=Role.MANAGER
     )
     response = client.get(f"{API_URL}/{project.id}")
     assert response.status_code == status.HTTP_200_OK
@@ -279,16 +282,19 @@ def test_get_project_with_viewer_role(
     project_owner = create_user(db)
     project = create_project(db, owner_id=project_owner.id)
     create_project_member(
-        db, email=current_user.email, project_id=project.id, role=Role.VIEWER
+        db, email=current_user.email, project_uuid=project.id, role=Role.VIEWER
     )
     response = client.get(f"{API_URL}/{project.id}")
     assert response.status_code == status.HTTP_200_OK
     response_data = response.json()
     assert str(project.id) == response_data["id"]
     assert response_data["role"] != "owner"
-    # created_by should be owner's full name
-    owner_full_name = f"{project_owner.first_name} {project_owner.last_name}"
-    assert response_data.get("created_by") == owner_full_name
+    # created_by should be owner's details
+    assert response_data.get("created_by") == {
+        "first_name": project_owner.first_name,
+        "last_name": project_owner.last_name,
+        "email": project_owner.email,
+    }
 
 
 def test_get_project_by_non_project_member(
@@ -307,7 +313,7 @@ def test_get_projects(
     project2 = create_project(db)
     project2_member_in = ProjectMemberCreate(member_id=current_user.id)
     crud.project_member.create_with_project(
-        db, obj_in=project2_member_in, project_id=project2.id
+        db, obj_in=project2_member_in, project_uuid=project2.id
     )
     create_project(db)
     response = client.get(API_URL)
@@ -411,9 +417,9 @@ def test_get_projects_with_specific_data_type(
     project3 = create_project(db)
     projects = [project1, project2, project3]
     # add user as project member to all three projects
-    create_project_member(db, member_id=current_user.id, project_id=project1.id)
-    create_project_member(db, member_id=current_user.id, project_id=project2.id)
-    create_project_member(db, member_id=current_user.id, project_id=project3.id)
+    create_project_member(db, member_id=current_user.id, project_uuid=project1.id)
+    create_project_member(db, member_id=current_user.id, project_uuid=project2.id)
+    create_project_member(db, member_id=current_user.id, project_uuid=project3.id)
     # create flight for each project
     for project_idx, project in enumerate(projects):
         flight = create_flight(db, project_id=project.id)
@@ -481,7 +487,7 @@ def test_update_project_with_manager_role(
         member_id=current_user.id, role=Role.MANAGER
     )
     crud.project_member.create_with_project(
-        db, obj_in=project_member_in, project_id=project.id
+        db, obj_in=project_member_in, project_uuid=project.id
     )
     location = create_location(db)
     assert hasattr(location, "properties")
@@ -516,7 +522,7 @@ def test_update_project_with_viewer_role(
     # add current user to project
     project_member_in = ProjectMemberCreate(member_id=current_user.id)
     crud.project_member.create_with_project(
-        db, obj_in=project_member_in, project_id=project.id
+        db, obj_in=project_member_in, project_uuid=project.id
     )
     location = create_location(db)
     assert hasattr(location, "properties")
@@ -811,7 +817,7 @@ def test_deactivate_project_with_manager_role(
     )
     project = create_project(db, owner_id=owner.id)
     create_project_member(
-        db, email=current_user.email, project_id=project.id, role=Role.MANAGER
+        db, email=current_user.email, project_uuid=project.id, role=Role.MANAGER
     )
     response = client.delete(f"{API_URL}/{project.id}")
     assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -861,7 +867,7 @@ def test_get_deactivated_project_by_project_member(
         get_current_user(db, normal_user_access_token)
     )
     project = create_project(db, owner_id=owner.id)
-    create_project_member(db, email=current_user.email, project_id=project.id)
+    create_project_member(db, email=current_user.email, project_uuid=project.id)
     crud.project.deactivate(db, project_id=project.id, user_id=owner.id)
     response = client.get(f"{API_URL}/{project.id}")
     assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -941,7 +947,7 @@ def test_publish_project_to_stac_using_task(
     assert data_product1_file_permission.is_public is True
 
     # Clean up - remove from STAC catalog
-    from app.utils.STACCollectionManager import STACCollectionManager
+    from app.utils.stac.STACCollectionManager import STACCollectionManager
 
     scm = STACCollectionManager(collection_id=str(project.id))
     scm.remove_from_catalog()
@@ -992,7 +998,7 @@ def test_publish_project_to_stac_excludes_deactivated_data_products_using_task(
     assert str(data_product1.obj.id) not in published_item_ids
 
     # Clean up
-    from app.utils.STACCollectionManager import STACCollectionManager
+    from app.utils.stac.STACCollectionManager import STACCollectionManager
 
     scm = STACCollectionManager(collection_id=str(project.id))
     scm.remove_from_catalog()
@@ -1073,7 +1079,7 @@ def test_publish_stac_with_scientific_metadata_using_task(
     from app.tests.utils.data_product import SampleDataProduct
     from app.tests.utils.flight import create_flight
     from app.tests.utils.project import create_project
-    from app.utils.STACCollectionManager import STACCollectionManager
+    from app.utils.stac.STACCollectionManager import STACCollectionManager
 
     # Create project owned by current user
     current_user = get_current_approved_user(
@@ -1127,7 +1133,7 @@ def test_publish_stac_with_custom_titles_using_task(
     from app.tests.utils.data_product import SampleDataProduct
     from app.tests.utils.flight import create_flight
     from app.tests.utils.project import create_project
-    from app.utils.STACCollectionManager import STACCollectionManager
+    from app.utils.stac.STACCollectionManager import STACCollectionManager
 
     # Create project owned by current user
     current_user = get_current_approved_user(
@@ -1182,7 +1188,7 @@ def test_publish_stac_with_failed_items_using_task(
     from app.tests.utils.data_product import SampleDataProduct
     from app.tests.utils.flight import create_flight
     from app.tests.utils.project import create_project
-    from app.utils.STACCollectionManager import STACCollectionManager
+    from app.utils.stac.STACCollectionManager import STACCollectionManager
 
     # Create project owned by current user
     current_user = get_current_approved_user(
@@ -1202,7 +1208,7 @@ def test_publish_stac_with_failed_items_using_task(
     def mock_create_item(*args, **kwargs):
         raise ValueError("Unable to find bounding box")
 
-    monkeypatch.setattr("app.utils.pdal_to_stac.create_item", mock_create_item)
+    monkeypatch.setattr("app.utils.stac.pdal_to_stac.create_item", mock_create_item)
 
     # Publish project to STAC using task
     result = publish_stac_catalog_task(str(project.id), db=db)
@@ -1572,7 +1578,7 @@ def test_stac_cache_with_failed_items_preview(
     def mock_create_item(*args, **kwargs):
         raise ValueError("Unable to process point cloud")
 
-    monkeypatch.setattr("app.utils.pdal_to_stac.create_item", mock_create_item)
+    monkeypatch.setattr("app.utils.stac.pdal_to_stac.create_item", mock_create_item)
 
     # Generate preview to create cache using task function
     generate_stac_preview_task(str(project.id), db=db)
@@ -1678,7 +1684,7 @@ def test_stac_cache_after_successful_publication(
     assert cache_data["items"][0]["id"] == str(data_product.obj.id)
 
     # Clean up - remove from STAC catalog
-    from app.utils.STACCollectionManager import STACCollectionManager
+    from app.utils.stac.STACCollectionManager import STACCollectionManager
 
     scm = STACCollectionManager(collection_id=str(project.id))
     scm.remove_from_catalog()
@@ -1786,7 +1792,7 @@ def test_stac_with_license_using_task(
     assert publish_result["collection"]["license"] == test_license
 
     # Clean up - remove from STAC catalog
-    from app.utils.STACCollectionManager import STACCollectionManager
+    from app.utils.stac.STACCollectionManager import STACCollectionManager
 
     scm = STACCollectionManager(collection_id=str(project.id))
     scm.remove_from_catalog()

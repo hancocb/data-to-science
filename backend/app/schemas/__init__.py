@@ -31,6 +31,16 @@ from .extension import Extension, ExtensionCreate, ExtensionUpdate
 from .file_permission import FilePermission, FilePermissionCreate, FilePermissionUpdate
 from .flight import Flight, FlightCreate, FlightUpdate
 from .iforester import IForester, IForesterCreate, IForesterPost, IForesterUpdate
+from .indoor_project import IndoorProject, IndoorProjectCreate, IndoorProjectUpdate
+from .indoor_project_data import (
+    IndoorProjectData,
+    IndoorProjectDataCreate,
+    IndoorProjectDataUpdate,
+    IndoorProjectDataPlant,
+    IndoorProjectDataSpreadsheet,
+    IndoorProjectDataSpreadsheetPlantData,
+    IndoorProjectDataVizScatterResponse,
+)
 from .job import Job, JobCreate, JobUpdate
 from .location import Location, LocationCreate, LocationUpdate
 from .project import Project, ProjectCreate, ProjectUpdate
@@ -61,7 +71,7 @@ from .team_member import TeamMember, TeamMemberCreate, TeamMemberUpdate
 from .token import Token, TokenPayload
 from .tusd import TUSDHook
 from .upload import Upload, UploadCreate, UploadUpdate
-from .user import User, UserCreate, UserInDB, UserUpdate
+from .user import User, UserAdmin, UserCreate, UserInDB, UserPublic, UserUpdate
 from .user_extension import UserExtension, UserExtensionCreate, UserExtensionUpdate
 from .user_style import UserStyle, UserStyleCreate, UserStyleUpdate
 from .vector_layer import (

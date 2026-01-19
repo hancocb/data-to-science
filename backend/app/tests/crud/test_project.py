@@ -107,7 +107,7 @@ def test_create_project_creates_project_member_for_owner(db: Session) -> None:
     assert project_member
     assert project_member.role == Role.OWNER
     assert user.id == project_member.member_id
-    assert project.id == project_member.project_id
+    assert project.id == project_member.project_uuid
 
 
 def test_get_project_by_id(db: Session) -> None:
@@ -143,9 +143,12 @@ def test_get_project_by_user_and_project_id(db: Session) -> None:
     assert project.owner_id == stored_project["result"].owner_id
     assert project.is_active == stored_project["result"].is_active
     assert project.is_published == stored_project["result"].is_published
-    # created_by should be owner's full name
-    owner_full_name = f"{user.first_name} {user.last_name}"
-    assert stored_project["result"].created_by == owner_full_name
+    # created_by should be owner's details
+    assert stored_project["result"].created_by == {
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "email": user.email,
+    }
 
 
 def test_get_project_with_team_by_user_and_project_id(db: Session) -> None:
@@ -167,9 +170,12 @@ def test_get_project_with_team_by_user_and_project_id(db: Session) -> None:
     assert project.owner_id == stored_project["result"].owner_id
     assert project.is_active == stored_project["result"].is_active
     assert project.is_published == stored_project["result"].is_published
-    # created_by should be owner's full name
-    owner_full_name = f"{user.first_name} {user.last_name}"
-    assert stored_project["result"].created_by == owner_full_name
+    # created_by should be owner's details
+    assert stored_project["result"].created_by == {
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "email": user.email,
+    }
 
 
 def test_get_projects_by_owner(db: Session) -> None:
@@ -190,9 +196,9 @@ def test_get_projects_by_project_member(db: Session) -> None:
     project1 = create_project(db)
     project2 = create_project(db)
     project3 = create_project(db)
-    create_project_member(db, member_id=user.id, project_id=project1.id)
-    create_project_member(db, member_id=user.id, project_id=project2.id)
-    create_project_member(db, member_id=user.id, project_id=project3.id)
+    create_project_member(db, member_id=user.id, project_uuid=project1.id)
+    create_project_member(db, member_id=user.id, project_uuid=project2.id)
+    create_project_member(db, member_id=user.id, project_uuid=project3.id)
     projects = crud.project.get_user_projects(db, user=user)
     assert projects
     assert isinstance(projects, list)
@@ -209,9 +215,9 @@ def test_get_projects_with_data_products_by_type(db: Session) -> None:
     project3 = create_project(db)
     projects = [project1, project2, project3]
     # add user as project member to all three projects
-    create_project_member(db, member_id=user.id, project_id=project1.id)
-    create_project_member(db, member_id=user.id, project_id=project2.id)
-    create_project_member(db, member_id=user.id, project_id=project3.id)
+    create_project_member(db, member_id=user.id, project_uuid=project1.id)
+    create_project_member(db, member_id=user.id, project_uuid=project2.id)
+    create_project_member(db, member_id=user.id, project_uuid=project3.id)
     # create flight for each project
     for project_idx, project in enumerate(projects):
         flight = create_flight(db, project_id=project.id)
