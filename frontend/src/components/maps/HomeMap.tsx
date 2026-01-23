@@ -50,7 +50,7 @@ export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
   const [isMapReady, setIsMapReady] = useState(false);
   const [popupInfo, setPopupInfo] = useState<PopupInfoProps | null>(null);
   const [config, setConfig] = useState<{ osmLabelFilter?: string } | null>(
-    null
+    null,
   );
 
   const { active } = useAnnotationContext();

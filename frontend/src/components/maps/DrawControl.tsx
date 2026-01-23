@@ -8,7 +8,7 @@ import { useAnnotationContext } from './contexts/AnnotationContext';
 export default function DrawControl() {
   const { current: map } = useMap();
   const { active } = useAnnotationContext();
-  const drawRef = useRef<any | null>(null);
+  const drawRef = useRef<MaplibreTerradrawControl | null>(null);
 
   // 1) Create TerraDraw instance once
   useEffect(() => {
@@ -44,12 +44,12 @@ export default function DrawControl() {
 
     try {
       if (active) {
-        draw.start?.();
+        draw.activate();
       } else {
-        draw.stop?.();
+        draw.deactivate();
       }
     } catch (error) {
-      console.error('Error starting/stopping draw:', error);
+      console.error('Error activating/deactivating draw:', error);
     }
   }, [active]);
 
