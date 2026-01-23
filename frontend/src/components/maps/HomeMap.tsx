@@ -11,7 +11,9 @@ import Map, {
 } from 'react-map-gl/maplibre';
 import { useLocation } from 'react-router';
 
+import AnnotationToolsToggle from './AnnotationToolsToggle';
 import ColorBarControl from './ColorBarControl';
+import DrawControl from './DrawControl';
 import GeocoderControl from './GeocoderControl';
 import ProjectCluster from './ProjectCluster';
 import FeaturePopup from './FeaturePopup';
@@ -271,6 +273,12 @@ export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
       {activeProject && (
         <ProjectBoundary setActiveProjectBBox={setActiveProjectBBox} />
       )}
+
+      {/* Annotation drawing control (renders drawing tools when annotation mode active) */}
+      <DrawControl />
+
+      {/* Annotation tool toggle */}
+      {activeProject && <AnnotationToolsToggle />}
 
       {/* Measurement tool control */}
       {activeProject && <MeasureToolsToggle />}
