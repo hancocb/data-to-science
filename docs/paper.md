@@ -44,7 +44,7 @@ bibliography: paper.bib
 
 # Summary
 
-Recently, geospatial data has begun to be used across a wide range of research fields; however, its large size and unstructured nature present challenges in fostering cohesive collaboration among diverse disciplines. The **Data-to-Science (D2S)** ecosystem is an open-source platform that offers an easy-to-use web application and additional client applications, specifically designed for managing comprehensive geospatial data and thereby supporting a broad range of research applications. The D2S web application serves as the primary interface of the D2S ecosystem, originally intended for archiving and visualizing geospatial data, particularly uncrewed aerial system (UAS) data, which often poses management challenges for individual researchers. To assist those who wish to comprehensively analyze both archived data within the D2S and other external geospatial datasets, the current D2S ecosystem also includes three additional components: the [D2S Python module (*d2spy*)](https://py.d2s.org), the [QGIS plugin (*D2S Browser*)](https://plugins.qgis.org/plugins/d2s_browser/), and a [public STAC catalog](https://stac.d2s.org/) accessible via both API and browser interface.
+Recently, geospatial data has begun to be used across a wide range of research fields; however, its large size and unstructured nature present challenges in fostering cohesive collaboration among diverse disciplines. The **Data-to-Science (D2S)** ecosystem is an open-source package that offers an easy-to-use web application and additional client applications, specifically designed for managing comprehensive geospatial data and thereby supporting a broad range of research applications. The D2S web application serves as the primary interface of the D2S ecosystem, originally intended for archiving and visualizing geospatial data, particularly uncrewed aerial system (UAS) data, which often poses management challenges for individual researchers. To assist those who wish to comprehensively analyze both archived data within the D2S and other external geospatial datasets, the current D2S ecosystem also includes three additional components: the [D2S Python module (*d2spy*)](https://py.d2s.org), the [QGIS plugin (*D2S Browser*)](https://plugins.qgis.org/plugins/d2s_browser/), and a [public STAC catalog](https://stac.d2s.org/) accessible via both API and browser interface.
 
 
 # Statement of Need
@@ -108,11 +108,17 @@ Furthermore, the Python module, [*d2spy*](https://py.d2s.org), is available thro
 
 # Data-to-Science Tutorials
 
-The D2S web application is containerized using Docker, enabling consistent deployment across both Linux servers using Docker Compose and cloud environments orchestrated with Kubernetes. A single Docker Compose file enables local deployment, while public Docker images and minimal configuration make the platform easy to integrate into cloud infrastructure. Step-by-step instructions are available in the GitHub README. The basic user manual for the D2S functionalities (as described in the table above) is available at https://docs.gdsl.org/data-to-science-user-manual with the publicly available sample data. A collection of example guides for using the D2S Python module, d2spy, is also available at https://py.d2s.org/guides/. In addition, a range of real-world application cases using the D2S ecosystem is provided as video tutorials at https://d2s.org/workshop.
+The D2S web application is containerized using Docker, enabling consistent deployment across both Linux servers using Docker Compose and cloud environments orchestrated with Kubernetes. A single Docker Compose file enables local deployment, while public Docker images and minimal configuration make D2S easy to integrate into cloud infrastructure. Step-by-step instructions are available in the GitHub README. The basic user manual for the D2S functionalities (as described in the table above) is available at https://docs.gdsl.org/data-to-science-user-manual with the publicly available sample data. A collection of example guides for using the D2S Python module, d2spy, is also available at https://py.d2s.org/guides/. In addition, a range of real-world application cases using the D2S ecosystem is provided as video tutorials at https://d2s.org/workshop.
 
 
 # Acknowledgements
 This work was partially supported by the Purdue Plant Science 2.0 Initiative, the Institute for Digital Forestry at Purdue, the PERSEUS grant (#2023-68012-38992) under USDA NIFA, the EFFICACI grant (#NR233A750004G044) under NCRS, and the National Agricultural Producers Data Cooperative (Award 2023-77039-41033; Sub-award 25-6231-0428-008) under USDA.
 
 
+# Author Contributions:
+Conceptualization, J.J.; methodology, B.H., Z.C.Q., N.Z., Z.G. and J.J.; investigation, Z.C.Q., N.Z., and Z.G.; software, M.J., B.H., Z.C.Q., and J.J.; validation, M.J., B.H., J.S.D., and J.J.; data curation, M.J., B.H., and J.S.D.; writing – original draft preparation, M.J., B.H., J.S.D.; writing – review and editing, M.J., B.H., and J.J.; visualization, M.J., and B.H.; supervision, J.J.; project administration, M.J. and J.J.; resources, J.S.D., and J.J.; funding acquisition, J.J.; All authors have read and agreed to the published version of the manuscript.
+
+
 # References
+
+

@@ -3,8 +3,8 @@ import { useMapContext } from '../MapContext';
 import LayerCard from './LayerCard';
 import RasterStats from './RasterStats';
 import RasterSymbologySettings from '../RasterSymbologySettings';
-import { DataProduct } from '../../pages/projects/Project';
-import { getDataProductName } from '../../pages/projects/flights/DataProducts/DataProductsTable';
+import { DataProduct } from '../../pages/workspace/projects/Project';
+import { getDataProductName } from '../../pages/workspace/projects/flights/DataProducts/DataProductsTable';
 import { useRasterSymbologyContext } from '../RasterSymbologyContext';
 
 export default function DataProductCard({
@@ -15,6 +15,11 @@ export default function DataProductCard({
   const { activeDataProduct, activeDataProductDispatch } = useMapContext();
 
   const { dispatch } = useRasterSymbologyContext();
+
+  // Check if this is a raster data type (not point cloud, panoramic, or 3dgs)
+  const isRasterType = !['point_cloud', 'panoramic', '3dgs'].includes(
+    dataProduct.data_type
+  );
 
   return (
     <LayerCard
@@ -52,9 +57,17 @@ export default function DataProductCard({
               {getDataProductName(dataProduct.data_type)}
             </span>
           </div>
-          {dataProduct.data_type !== 'point_cloud' &&
-          dataProduct.data_type !== 'panoramic' &&
-          dataProduct.data_type !== '3dgs' ? (
+          {isRasterType &&
+            dataProduct.resolution &&
+            dataProduct.resolution.unit !== 'unknown' &&
+            dataProduct.crs && (
+              <div className="text-xs text-slate-500">
+                Resolution: {parseFloat(dataProduct.resolution.x.toFixed(3))} x{' '}
+                {parseFloat(dataProduct.resolution.y.toFixed(3))}{' '}
+                {dataProduct.resolution.unit} (EPSG:{dataProduct.crs.epsg})
+              </div>
+            )}
+          {isRasterType && (
             <fieldset className="border border-solid border-slate-300 p-2">
               <legend className="block text-sm text-gray-400 font-semibold pt-1 pb-1">
                 Band Info
@@ -69,25 +82,18 @@ export default function DataProductCard({
                 })}
               </div>
             </fieldset>
-          ) : null}
-          {dataProduct.data_type !== 'point_cloud' &&
-            dataProduct.data_type !== 'panoramic' &&
-            dataProduct.data_type !== '3dgs' &&
-            dataProduct.stac_properties.raster.length === 1 && (
-              <RasterStats
-                stats={dataProduct.stac_properties.raster[0].stats}
-              />
-            )}
+          )}
+          {isRasterType && dataProduct.stac_properties.raster.length === 1 && (
+            <RasterStats stats={dataProduct.stac_properties.raster[0].stats} />
+          )}
         </div>
         {activeDataProduct &&
-        activeDataProduct.id === dataProduct.id &&
-        dataProduct.data_type !== 'point_cloud' &&
-        dataProduct.data_type !== 'panoramic' &&
-        dataProduct.data_type !== '3dgs' ? (
-          <div className="mt-2">
-            <RasterSymbologySettings />
-          </div>
-        ) : null}
+          activeDataProduct.id === dataProduct.id &&
+          isRasterType && (
+            <div className="mt-2">
+              <RasterSymbologySettings />
+            </div>
+          )}
       </div>
     </LayerCard>
   );

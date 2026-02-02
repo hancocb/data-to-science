@@ -1,4 +1,4 @@
-import { DataProduct } from '../../pages/projects/Project';
+import { DataProduct } from '../../pages/workspace/projects/Project';
 import OpacitySlider from '../OpacitySlider';
 import {
   MultibandSymbology,
@@ -15,11 +15,18 @@ export default function RasterSymbologyOpacitySlider({
 
   const symbology = state[dataProduct.id].symbology;
 
-  const isSingleBandSymbology = (symbology: any): symbology is SingleBandSymbology => {
+  // Early return if symbology is null
+  if (!symbology) return null;
+
+  const isSingleBandSymbology = (
+    symbology: SingleBandSymbology | MultibandSymbology
+  ): symbology is SingleBandSymbology => {
     return 'colorRamp' in symbology;
   };
 
-  const isMultibandSymbology = (symbology: any): symbology is MultibandSymbology => {
+  const isMultibandSymbology = (
+    symbology: SingleBandSymbology | MultibandSymbology
+  ): symbology is MultibandSymbology => {
     return 'red' in symbology;
   };
 
@@ -36,7 +43,10 @@ export default function RasterSymbologyOpacitySlider({
           payload: updatedSymbology,
         });
       } else if (isMultibandSymbology(symbology)) {
-        const updatedSymbology = { ...symbology, opacity: value } as MultibandSymbology;
+        const updatedSymbology = {
+          ...symbology,
+          opacity: value,
+        } as MultibandSymbology;
         dispatch({
           type: 'SET_SYMBOLOGY',
           rasterId: dataProduct.id,
@@ -49,8 +59,6 @@ export default function RasterSymbologyOpacitySlider({
       console.error('Unexpected array value for opacity slider');
     }
   };
-
-  if (!symbology) return;
 
   return (
     <div className="mt-4">

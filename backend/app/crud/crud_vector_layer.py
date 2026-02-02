@@ -45,11 +45,20 @@ class CRUDVectorLayer(CRUDBase[VectorLayer, VectorLayerCreate, VectorLayerUpdate
         for _, row in gdf.iterrows():
             # Get geometry in WKT format
             wkt_geometry = row.geometry.wkt
+
             # Convert to postgis compatible geometry
             geom = func.ST_Force2D(
                 func.ST_GeomFromText(text(f"'{wkt_geometry}'"), 4326)
             )
-            properties = jsonable_encoder(row.drop("geometry").to_dict())
+
+            props_series = row.drop("geometry")
+
+            # Convert missing values (np.nan, pd.NA) to None on the Series
+            props_series = props_series.where(props_series.notna(), None)
+
+            props = props_series.to_dict()
+            properties = jsonable_encoder(props)
+
             # Layer ID will be same for each feature from the feature collection
             vector_layer = VectorLayer(
                 layer_name=file_name,
@@ -225,6 +234,36 @@ class CRUDVectorLayer(CRUDBase[VectorLayer, VectorLayerCreate, VectorLayerUpdate
             )
         # Each list element is a list of features from a feature collection
         return list(vector_layers.values())
+
+    def update_layer_name_by_id(
+        self, db: Session, project_id: UUID, layer_id: str, layer_name: str
+    ) -> List[Feature]:
+        """Updates the layer_name for all features in a vector layer.
+
+        Args:
+            db (Session): Database session.
+            project_id (UUID): Project ID.
+            layer_id (str): Layer ID for feature collection.
+            layer_name (str): New layer name.
+
+        Returns:
+            List[Feature]: Updated features in Feature Collection.
+        """
+        with db.begin():
+            update_statement = (
+                update(VectorLayer)
+                .values(layer_name=layer_name)
+                .where(
+                    and_(
+                        VectorLayer.layer_id == layer_id,
+                        VectorLayer.project_id == project_id,
+                        VectorLayer.is_active,
+                    )
+                )
+            )
+            db.execute(update_statement)
+
+        return self.get_vector_layer_by_id(db, project_id=project_id, layer_id=layer_id)
 
     def remove_layer_by_id(self, db: Session, project_id: UUID, layer_id: str) -> None:
         """_summary_

@@ -1,19 +1,21 @@
 import { AxiosResponse } from 'axios';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
-import { useMapContext } from './MapContext';
-import { useMapApiKeys } from './MapApiKeysContext';
-import { MapLayer } from '../pages/projects/Project';
+import { MapLayer } from '../pages/workspace/projects/Project';
 import CompareMap from './CompareMap';
 import HomeMap from './HomeMap';
 import PanoViewer from './PanoViewer';
 import PotreeViewer from './PotreeViewer';
+
+import { useMapApiKeys } from './MapApiKeysContext';
+import { useMapContext } from './MapContext';
 import PlayCanvasglTFViewer from './PlayCanvasglTFViewer';
+import LCCViewer from './LCCViewer';
 import { useMapLayerContext } from './MapLayersContext';
+import { useRasterSymbologyContext } from './RasterSymbologyContext';
 
 import api from '../../api';
 import { mapApiResponseToLayers } from './utils';
-import { useRasterSymbologyContext } from './RasterSymbologyContext';
 
 export default function MapViewMode() {
   const { activeDataProduct, activeMapTool, activeProject } = useMapContext();
@@ -22,7 +24,14 @@ export default function MapViewMode() {
     state: { layers },
     dispatch,
   } = useMapLayerContext();
-  const symbologyContext = useRasterSymbologyContext();
+  const { state: symbologyState, dispatch: symbologyDispatch } =
+    useRasterSymbologyContext();
+
+  // Store symbologyState in ref to access without triggering effect
+  const symbologyStateRef = useRef(symbologyState);
+  useEffect(() => {
+    symbologyStateRef.current = symbologyState;
+  }, [symbologyState]);
 
   useEffect(() => {
     if (
@@ -62,7 +71,7 @@ export default function MapViewMode() {
         });
       }
     }
-  }, []);
+  }, [mapboxAccessTokenDispatch, maptilerApiKeyDispatch]);
 
   // Fetch map layers when a project is activated and
   // remove previous raster symbology settings from previous active project
@@ -82,8 +91,8 @@ export default function MapViewMode() {
     };
     if (activeProject) {
       // Remove any symbology settings for rasters from previously selected project
-      for (const rasterId in symbologyContext.state) {
-        symbologyContext.dispatch({
+      for (const rasterId in symbologyStateRef.current) {
+        symbologyDispatch({
           type: 'REMOVE_RASTER',
           rasterId: rasterId,
         });
@@ -91,7 +100,7 @@ export default function MapViewMode() {
       // Fetch map layers for selected project
       fetchMapLayers(activeProject.id);
     }
-  }, [activeProject]);
+  }, [activeProject, dispatch, symbologyDispatch]);
 
   if (activeMapTool === 'compare') {
     return <CompareMap />;
@@ -106,6 +115,9 @@ export default function MapViewMode() {
   } else if (activeDataProduct.data_type === 'panoramic') {
     return <PanoViewer imageUrl={activeDataProduct.url} />;
   } else if (activeDataProduct.data_type === '3dgs') {
+    if (activeDataProduct.url.endsWith('.lcc')) {
+      return <LCCViewer lccUrl={activeDataProduct.url} />;
+    }
     return <PlayCanvasglTFViewer src={activeDataProduct.url} />;
   } else {
     const copcPath = activeDataProduct.url;

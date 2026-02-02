@@ -1,10 +1,10 @@
 import { AxiosResponse } from 'axios';
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 
 import { AlertBar, Status } from '../Alert';
 import PlayCanvasglTFViewer from './PlayCanvasglTFViewer';
-import { DataProduct } from '../pages/projects/Project';
+import { DataProduct } from '../pages/workspace/projects/Project';
 
 import api from '../../api';
 
@@ -32,7 +32,7 @@ export default function SharePlayCanvasglTFViewer() {
         } else {
           setStatus({ type: 'error', msg: 'Unable to load file' });
         }
-      } catch (_err) {
+      } catch {
         setStatus({ type: 'error', msg: 'Unable to load file' });
       }
     }
@@ -40,7 +40,7 @@ export default function SharePlayCanvasglTFViewer() {
     if (fileID) {
       fetchUrl(fileID);
     }
-  }, []);
+  }, [fileID]);
 
   return (
     <>
