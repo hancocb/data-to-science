@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Literal, Optional, Tuple
 
 from pydantic import BaseModel, UUID4
 
@@ -9,37 +9,49 @@ DefectInts = Tuple[int, int, int, int, int, int]
 
 # properties in POST requests
 class IGraderPost(BaseModel):
-    scribner_price: Optional[float] = None
-    crookAngle: Optional[float] = None
-    grade: Optional[str] = None
-    formClass: float
-    sweepAngle: float
-    date_created: float
-    defect_array_dim: Tuple[int, int]
+    # Identity & metadata
+    id: UUID4
+    calculationMode: Literal["Tree", "Log"]
+    mode: str
     species: str
-    longitude: Optional[float] = None
+    grade: Optional[str] = None
+    date_created: float
+    date_modified: float
+
+    # Tree measurements
+    dbh: float
     treeHeight: float
-    international_val: Optional[float] = None
+    formClass: float
+
+    # Form defects
+    crook: float
+    crookAngle: Optional[float] = None
+    crookRatio: float
+    sweep: float
+    sweepAngle: float
+    buttOnly: bool
+    defect_array_dim: Tuple[int, int]
     defects: Tuple[
         DefectInts,
         DefectInts,
         DefectInts,
         DefectInts,
     ]
-    date_modified: float
-    sweep: float
+
+    # Location
     latitude: Optional[float] = None
-    mode: str
-    dbh: float
-    crookRatio: float
-    scribner_val: Optional[float] = None
-    buttOnly: bool
-    id: UUID4
-    face_images: Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]
-    international_price: Optional[float] = None
-    doyle_price: Optional[float] = None
-    crook: float
+    longitude: Optional[float] = None
+
+    # Valuation
     doyle_val: Optional[float] = None
+    doyle_price: Optional[float] = None
+    international_val: Optional[float] = None
+    international_price: Optional[float] = None
+    scribner_val: Optional[float] = None
+    scribner_price: Optional[float] = None
+
+    # Media
+    face_images: Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]
 
 
 # shared properties stored in db
