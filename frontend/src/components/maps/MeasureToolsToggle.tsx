@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { FaRuler } from 'react-icons/fa6';
 
+import MapToolToggleButton from './MapToolToggleButton';
 import MeasureTerraDrawControl from './MeasureTerraDrawControl';
 
 type MeasureUnitType = 'metric' | 'imperial';
@@ -56,9 +57,8 @@ export default function MeasureToolsToggle() {
         )}
         <div className="flex items-end gap-2">
           {shouldRender && <MeasureTerraDrawControl unitType={unitType} />}
-          <button
-            type="button"
-            className="h-12 w-12 bg-white rounded-md shadow-md flex items-center justify-center text-slate-600 hover:text-slate-800 hover:bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-accent2 transition-colors relative z-10 pointer-events-auto"
+          <MapToolToggleButton
+            active={isExpanded}
             aria-label={
               isExpanded ? 'Hide measurement tools' : 'Show measurement tools'
             }
@@ -67,7 +67,7 @@ export default function MeasureToolsToggle() {
             onClick={toggleExpanded}
           >
             <FaRuler className="h-5 w-5" />
-          </button>
+          </MapToolToggleButton>
         </div>
       </div>
     </>

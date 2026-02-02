@@ -13,7 +13,6 @@ import { useLocation } from 'react-router';
 
 import AnnotationToolsToggle from './AnnotationToolsToggle';
 import ColorBarControl from './ColorBarControl';
-import DrawControl from './DrawControl';
 import GeocoderControl from './GeocoderControl';
 import ProjectCluster from './ProjectCluster';
 import FeaturePopup from './FeaturePopup';
@@ -23,7 +22,6 @@ import ProjectPopup from './ProjectPopup';
 import ProjectRasterTiles from './ProjectRasterTiles';
 import ProjectVectorTiles from './ProjectVectorTiles';
 
-import { useAnnotationContext } from './contexts/AnnotationContext';
 import { useMapContext } from './MapContext';
 import { useMapApiKeys } from './MapApiKeysContext';
 import { MapLayerProps } from './MapLayersContext';
@@ -55,7 +53,6 @@ export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
     null,
   );
 
-  const { active } = useAnnotationContext();
   const {
     activeDataProduct,
     activeProject,
@@ -274,10 +271,7 @@ export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
         <ProjectBoundary setActiveProjectBBox={setActiveProjectBBox} />
       )}
 
-      {/* Annotation drawing control (renders drawing tools when annotation mode active) */}
-      <DrawControl />
-
-      {/* Annotation tool toggle */}
+      {/* Annotation tool toggle (renders drawing tools when annotation mode active) */}
       {activeProject && <AnnotationToolsToggle />}
 
       {/* Measurement tool control */}
