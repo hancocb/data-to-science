@@ -24,6 +24,7 @@ from .extension import Extension, ExtensionCreate, ExtensionUpdate
 from .file_permission import FilePermission, FilePermissionCreate, FilePermissionUpdate
 from .flight import Flight, FlightCreate, FlightUpdate
 from .iforester import IForester, IForesterCreate, IForesterPost, IForesterUpdate
+from .igrader import IGrader, IGraderCreate, IGraderPost, IGraderUpdate
 from .indoor_project import IndoorProject, IndoorProjectCreate, IndoorProjectUpdate
 from .indoor_project_data import (
     IndoorProjectData,

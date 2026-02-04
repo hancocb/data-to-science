@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from .campaign import Campaign
     from .flight import Flight
     from .iforester import IForester
+    from .igrader import IGrader
     from .project_like import ProjectLike
     from .location import Location
     from .project_member import ProjectMember
@@ -80,6 +81,9 @@ class Project(Base):
         back_populates="project", cascade="all, delete"
     )
     iforester: Mapped[List["IForester"]] = relationship(
+        back_populates="project", cascade="all, delete"
+    )
+    igrader: Mapped[List["IGrader"]] = relationship(
         back_populates="project", cascade="all, delete"
     )
     vector_layer: Mapped[List["VectorLayer"]] = relationship(

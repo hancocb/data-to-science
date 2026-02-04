@@ -8,6 +8,7 @@ from .extension import Extension
 from .file_permission import FilePermission
 from .flight import Flight
 from .iforester import IForester
+from .igrader import IGrader
 from .indoor_project import IndoorProject
 from .indoor_project_data import IndoorProjectData
 from .job import Job

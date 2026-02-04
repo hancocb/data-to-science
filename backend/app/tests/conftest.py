@@ -54,6 +54,11 @@ pytest_requires_iforester = pytest.mark.skipif(
     reason="iForester feature disabled (ENABLE_IFORESTER=false)",
 )
 
+pytest_requires_igrader = pytest.mark.skipif(
+    not settings.ENABLE_IGRADER,
+    reason="iGrader feature disabled (ENABLE_IGRADER=false)",
+)
+
 pytest_requires_stac = pytest.mark.skipif(
     not settings.ENABLE_STAC, reason="STAC feature disabled (ENABLE_STAC=false)"
 )

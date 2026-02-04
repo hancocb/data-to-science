@@ -164,7 +164,6 @@ This allows cookies to work correctly in non-localhost HTTP environments.
    You must provide a value for `SECRET_KEY` in your `backend.env` file. Use a cryptographically secure random string of at least 32 characters.
 
    **Environment variables**
-
    - `API_PROJECT_NAME`: Name that will appear in the FastAPI docs.
    - `API_DOMAIN`: Domain used for accessing the application (e.g., http://localhost or https://customdomain)
    - `CELERY_BROKER_URL`: Address for local redis service.
@@ -172,6 +171,7 @@ This allows cookies to work correctly in non-localhost HTTP environments.
    - `ENABLE_BREEDBASE`: Enable/disable Breedbase connection endpoints (true/false).
    - `ENABLE_CAMPAIGNS`: Enable/disable campaign management endpoints (true/false).
    - `ENABLE_IFORESTER`: Enable/disable iForester integration endpoints (true/false).
+   - `ENABLE_IGRADER`: Enable/disable iGrader integration endpoints (true/false).
    - `ENABLE_STAC`: Enable/disable STAC (SpatioTemporal Asset Catalog) endpoints (true/false).
    - `ENABLE_OPENTELEMETRY`: Enable/disable OpenTelemetry. Must also uncomment the `otel-collector` container and toggle the `backend` and `titiler` OpenTelemetry related environment settings in the docker compose config. Disabled by default.
    - `EXTENSIONS`: Can be used to enable extensions. Should be left blank typically.
@@ -207,7 +207,6 @@ This allows cookies to work correctly in non-localhost HTTP environments.
 5. Open `frontend/.env` in a text editor. You may use the default values or change them as needed.
 
    **Environment variables**
-
    - `VITE_API_V1_STR`: Path for API endpoints. Do not change from default value unless the path has been changed in the backend.
    - `VITE_BRAND_FULL`: Full name of application.
    - `VITE_BRAND_SHORT`: Abbreviated name of application.
@@ -222,7 +221,6 @@ This allows cookies to work correctly in non-localhost HTTP environments.
 6. Open `frontend/.env.development` in a text editor. You may use the default values or change them as needed.
 
    Environment variables:
-
    - `VITE_META_OG_IMAGE`: Preview image URL for social media shares.
    - `VITE_META_OG_URL`: Hostname for site.
    - `VITE_TURNSTILE_SITE_KEY`: Cloudflare Turnstile site key for bot protection on registration (optional). Leave empty to disable.

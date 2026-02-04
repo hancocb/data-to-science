@@ -38,6 +38,9 @@ if settings.MAIL_ENABLED:
 if settings.ENABLE_IFORESTER:
     from app.api.api_v1.endpoints import iforester
 
+if settings.ENABLE_IGRADER:
+    from app.api.api_v1.endpoints import igrader
+
 if settings.ENABLE_STAC:
     from app.api.api_v1.endpoints import stac
 
@@ -136,6 +139,11 @@ if settings.MAIL_ENABLED:
 if settings.ENABLE_IFORESTER:
     api_router.include_router(
         iforester.router, prefix="/projects/{project_id}/iforester", tags=["iforester"]
+    )
+
+if settings.ENABLE_IGRADER:
+    api_router.include_router(
+        igrader.router, prefix="/projects/{project_id}/igrader", tags=["igrader"]
     )
 
 if settings.ENABLE_STAC:

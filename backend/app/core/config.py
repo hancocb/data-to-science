@@ -134,6 +134,7 @@ class Settings(BaseSettings):
     ENABLE_BREEDBASE: bool = False
     ENABLE_CAMPAIGNS: bool = False
     ENABLE_IFORESTER: bool = False
+    ENABLE_IGRADER: bool = False
     ENABLE_STAC: bool = False
 
     # STAC Catalog
