@@ -48,7 +48,7 @@ def create_igrader(
 
     post_data = data if data is not None else EXAMPLE_DATA
     igrader_post = IGraderPost(**post_data)
-    igrader = crud.igrader.create_from_post(
+    igrader, _created = crud.igrader.create_or_update_from_post(
         db, post_data=igrader_post, project_id=project_id
     )
     return igrader

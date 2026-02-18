@@ -1,7 +1,9 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, UUID4
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict
 
 
 # Minimal schema for POST - accepts any JSON
@@ -28,9 +30,11 @@ class IGraderUpdate(BaseModel):
 class IGraderInDBBase(IGraderBase):
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID4
+    id: UUID
+    igrader_id: UUID
     created_at: datetime
-    project_id: UUID4
+    updated_at: Optional[datetime] = None
+    project_id: UUID
 
 
 # Response schema
