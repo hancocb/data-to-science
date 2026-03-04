@@ -4,6 +4,8 @@ from typing import List, Optional, TYPE_CHECKING
 from geojson_pydantic import Feature
 from pydantic import BaseModel, ConfigDict, Field, UUID4
 
+from app.models.enums.visibility import Visibility
+
 
 if TYPE_CHECKING:
     from app.schemas.annotation_attachment import AnnotationAttachment
@@ -23,11 +25,13 @@ class AnnotationCreate(AnnotationBase):
     description: str = Field(min_length=1)
     geom: Feature
     tags: List[str] = Field(default_factory=list)
+    visibility: Visibility = Visibility.OWNER
 
 
 # properties to receive via API on update
 class AnnotationUpdate(AnnotationBase):
     tags: Optional[List[str]] = None
+    visibility: Optional[Visibility] = None
 
 
 # properties shared by models stored in DB
@@ -40,6 +44,7 @@ class AnnotationInDBBase(AnnotationBase):
     geom: Feature = Field(validation_alias="feature_geojson")
     data_product_id: UUID4
     created_by_id: Optional[UUID4] = None
+    visibility: Visibility = Visibility.OWNER
     created_at: datetime
     updated_at: datetime
 

@@ -1,9 +1,8 @@
 import { isAxiosError } from 'axios';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FormProvider, SubmitHandler, useForm } from 'react-hook-form';
 import * as Yup from 'yup';
 import { yupResolver } from '@hookform/resolvers/yup';
-import { Feature } from 'geojson';
 
 import Alert, { Status } from '../Alert';
 import { Button, OutlineButton } from '../Buttons';
@@ -11,7 +10,7 @@ import { InputField, TextAreaField } from '../FormFields';
 import Modal from '../Modal';
 
 import api from '../../api';
-import { Visibility } from './contexts/AnnotationContext';
+import { Annotation, Visibility } from './contexts/AnnotationContext';
 
 type AnnotationFormData = {
   description: string;
@@ -29,37 +28,38 @@ const validationSchema = Yup.object({
     .required(),
 });
 
-const defaultValues: AnnotationFormData = {
-  description: '',
-  tags: '',
-  visibility: 'OWNER',
-};
-
-interface AnnotationCreateModalProps {
+interface AnnotationEditModalProps {
   open: boolean;
   setOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  feature: Feature | null;
+  annotation: Annotation;
   projectId: string;
   flightId: string;
   dataProductId: string;
   onSuccess: () => void;
-  onCancel: () => void;
 }
 
-export default function AnnotationCreateModal({
+export default function AnnotationEditModal({
   open,
   setOpen,
-  feature,
+  annotation,
   projectId,
   flightId,
   dataProductId,
   onSuccess,
-  onCancel,
-}: AnnotationCreateModalProps) {
+}: AnnotationEditModalProps) {
   const [status, setStatus] = useState<Status | null>(null);
 
+  const tagsString = annotation.tag_rows
+    .map((tr) => tr.tag?.name)
+    .filter(Boolean)
+    .join(', ');
+
   const methods = useForm<AnnotationFormData>({
-    defaultValues,
+    defaultValues: {
+      description: annotation.description,
+      tags: tagsString,
+      visibility: annotation.visibility ?? 'OWNER',
+    },
     resolver: yupResolver(validationSchema),
   });
 
@@ -70,8 +70,15 @@ export default function AnnotationCreateModal({
     reset,
   } = methods;
 
+  useEffect(() => {
+    reset({
+      description: annotation.description,
+      tags: tagsString,
+      visibility: annotation.visibility ?? 'OWNER',
+    });
+  }, [annotation, tagsString, reset]);
+
   const onSubmit: SubmitHandler<AnnotationFormData> = async (values) => {
-    if (!feature) return;
     setStatus(null);
 
     const tags = values.tags
@@ -82,16 +89,14 @@ export default function AnnotationCreateModal({
       : [];
 
     try {
-      await api.post(
-        `/projects/${projectId}/flights/${flightId}/data_products/${dataProductId}/annotations`,
+      await api.put(
+        `/projects/${projectId}/flights/${flightId}/data_products/${dataProductId}/annotations/${annotation.id}`,
         {
           description: values.description,
-          geom: feature,
           tags,
           visibility: values.visibility,
         }
       );
-      reset();
       setStatus(null);
       setOpen(false);
       onSuccess();
@@ -99,10 +104,10 @@ export default function AnnotationCreateModal({
       if (isAxiosError(err)) {
         setStatus({
           type: 'error',
-          msg: err.response?.data.detail || 'Unable to create annotation',
+          msg: err.response?.data.detail || 'Unable to update annotation',
         });
       } else {
-        setStatus({ type: 'error', msg: 'Unable to create annotation' });
+        setStatus({ type: 'error', msg: 'Unable to update annotation' });
       }
     }
   };
@@ -111,14 +116,13 @@ export default function AnnotationCreateModal({
     reset();
     setStatus(null);
     setOpen(false);
-    onCancel();
   };
 
   return (
     <Modal open={open} setOpen={() => handleCancel()}>
       <div className="my-8 mx-4">
         <div className="mx-4 my-2">
-          <h2 className="text-lg font-bold mb-4">New Annotation</h2>
+          <h2 className="text-lg font-bold mb-4">Edit Annotation</h2>
           <FormProvider {...methods}>
             <form
               className="flex flex-col gap-4"
@@ -179,7 +183,7 @@ export default function AnnotationCreateModal({
                 </div>
                 <div className="w-36">
                   <Button type="submit" size="sm" disabled={isSubmitting}>
-                    {isSubmitting ? 'Saving...' : 'Save'}
+                    {isSubmitting ? 'Updating...' : 'Update'}
                   </Button>
                 </div>
               </div>

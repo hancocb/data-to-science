@@ -15,6 +15,7 @@ from app.core.exceptions import PermissionDenied, ResourceNotFound
 from app.schemas import TUSDHook, UploadUpdate
 from app.schemas.role import Role
 from app.utils.tusd.post_processing import (
+    process_annotation_attachment_uploaded_to_tusd,
     process_data_product_uploaded_to_tusd,
     process_indoor_data_uploaded_to_tusd,
     process_raw_data_uploaded_to_tusd,
@@ -374,6 +375,45 @@ def _handle_uas_project_hooks(
         return _handle_post_create_uas(payload, db, upload_id, existing_upload)
 
     if payload.Type == "post-finish":
+        # Annotation attachments are processed synchronously (no Celery task)
+        # and don't need upload record tracking, so handle them first.
+        if data_type == "annotation_attachment":
+            storage = payload.Event.Upload.Storage
+            if not storage or not os.path.exists(storage.Path):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Uploaded file not found",
+                )
+            x_annotation_id = payload.Event.HTTPRequest.Header.X_Annotation_ID
+            x_data_product_id = (
+                payload.Event.HTTPRequest.Header.X_Data_Product_ID
+            )
+            if not x_annotation_id or len(x_annotation_id) != 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Must include 'X-Annotation-Id' header",
+                )
+            if not x_data_product_id or len(x_data_product_id) != 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Must include 'X-Data-Product-Id' header",
+                )
+            process_annotation_attachment_uploaded_to_tusd(
+                db,
+                storage_path=Path(storage.Path),
+                original_filename=Path(
+                    payload.Event.Upload.MetaData.filename
+                ),
+                project_id=project.id,
+                flight_id=flight.id,
+                data_product_id=x_data_product_id[0],
+                annotation_id=x_annotation_id[0],
+            )
+            # Update upload record if it exists (best-effort bookkeeping)
+            if existing_upload:
+                _update_upload_record_to_finished(db, existing_upload)
+            return {"status": "ok"}
+
         _update_upload_record_to_finished(db, existing_upload)
         # After _update_upload_record_to_finished, existing_upload is guaranteed not None
         assert existing_upload is not None
@@ -382,8 +422,8 @@ def _handle_uas_project_hooks(
         if is_uploading == True or not existing_upload:
             storage = payload.Event.Upload.Storage
             if storage and os.path.exists(storage.Path):
-                # post-processing for geotiffs and point clouds
                 if data_type != "raw":
+                    # post-processing for geotiffs and point clouds
                     process_data_product_uploaded_to_tusd(
                         db,
                         user_id=existing_upload.user_id,

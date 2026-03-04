@@ -243,7 +243,7 @@ services:
 
   tusd:
     image: tusproject/tusd:sha-0e52ad6
-    command: -verbose -behind-proxy -hooks-http http://proxy/api/v1/tusd -hooks-http-forward-headers Cookie X-Project-ID X-Flight-ID X-Data-Type
+    command: -verbose -behind-proxy -hooks-http http://proxy/api/v1/tusd -hooks-http-forward-headers Cookie X-Project-ID X-Flight-ID X-Data-Type X-Annotation-ID X-Data-Product-ID
     volumes:
       - ./tusd/hooks:/srv/tusd-hooks
       - tusd-data:/srv/tusd-data/data

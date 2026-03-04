@@ -11,6 +11,7 @@ import Map, {
 } from 'react-map-gl/maplibre';
 import { useLocation } from 'react-router';
 
+import AnnotationLayers from './AnnotationLayers';
 import AnnotationToolsToggle from './AnnotationToolsToggle';
 import ColorBarControl from './ColorBarControl';
 import GeocoderControl from './GeocoderControl';
@@ -265,6 +266,9 @@ export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
 
       {/* Display project vector layers when project active and layers selected */}
       {activeProject && <ProjectVectorTiles />}
+
+      {/* Display checked annotation GeoJSON layers */}
+      {activeProject && <AnnotationLayers />}
 
       {/* Display project boundary when project activated */}
       {activeProject && (

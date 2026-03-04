@@ -50,6 +50,7 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
             geom=geom,
             data_product_id=data_product_id,
             created_by_id=created_by_id,
+            visibility=obj_in_data.get("visibility", "OWNER"),
         )
 
         # Use the provided session without closing it prematurely. FastAPI

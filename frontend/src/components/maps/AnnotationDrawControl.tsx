@@ -4,7 +4,9 @@ import { useMap } from 'react-map-gl/maplibre';
 import { MaplibreTerradrawControl } from '@watergis/maplibre-gl-terradraw';
 import { Feature } from 'geojson';
 
+import api from '../../api';
 import AnnotationCreateModal from './AnnotationCreateModal';
+import { useAnnotationContext } from './contexts/AnnotationContext';
 
 interface AnnotationDrawControlProps {
   projectId: string;
@@ -18,13 +20,30 @@ export default function AnnotationDrawControl({
   dataProductId,
 }: AnnotationDrawControlProps) {
   const { current: map } = useMap();
+  const { deactivate, editingAnnotation, refetch } = useAnnotationContext();
   const drawRef = useRef<MaplibreTerradrawControl | null>(null);
+
+  // Refs to access current values inside the long-lived TerraDraw finish handler
+  const editingRef = useRef(editingAnnotation);
+  const deactivateRef = useRef(deactivate);
+  const refetchRef = useRef(refetch);
+  const projectIdRef = useRef(projectId);
+  const flightIdRef = useRef(flightId);
+  const dataProductIdRef = useRef(dataProductId);
   const containerRef = useRef<HTMLDivElement>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [drawnFeature, setDrawnFeature] = useState<Feature | null>(null);
   const [drawnFeatureId, setDrawnFeatureId] = useState<string | number | null>(
     null
   );
+
+  // Keep refs in sync for the long-lived TerraDraw finish handler
+  useEffect(() => { editingRef.current = editingAnnotation; }, [editingAnnotation]);
+  useEffect(() => { deactivateRef.current = deactivate; }, [deactivate]);
+  useEffect(() => { refetchRef.current = refetch; }, [refetch]);
+  useEffect(() => { projectIdRef.current = projectId; }, [projectId]);
+  useEffect(() => { flightIdRef.current = flightId; }, [flightId]);
+  useEffect(() => { dataProductIdRef.current = dataProductId; }, [dataProductId]);
 
   useEffect(() => {
     if (!map || drawRef.current || !containerRef.current) return;
@@ -43,20 +62,37 @@ export default function AnnotationDrawControl({
     containerRef.current.appendChild(controlElement);
 
     const terraDraw = draw.getTerraDrawInstance();
-    const handleFinish = (
+    const handleFinish = async (
       id: string | number,
       context: { mode: string; action: string }
     ) => {
       if (context.mode === 'delete') return;
 
       const feature = terraDraw?.getSnapshotFeature(id);
-      if (feature) {
-        const { mode: _mode, ...restProperties } = feature.properties || {};
-        const cleanFeature: Feature = {
-          type: 'Feature',
-          geometry: feature.geometry,
-          properties: restProperties,
-        };
+      if (!feature) return;
+
+      const { mode: _mode, ...restProperties } = feature.properties || {};
+      const cleanFeature: Feature = {
+        type: 'Feature',
+        geometry: feature.geometry,
+        properties: restProperties,
+      };
+
+      if (editingRef.current) {
+        // Redraw mode: PUT new geometry to existing annotation
+        try {
+          await api.put(
+            `/projects/${projectIdRef.current}/flights/${flightIdRef.current}/data_products/${dataProductIdRef.current}/annotations/${editingRef.current.id}`,
+            { geom: cleanFeature }
+          );
+          try { terraDraw?.removeFeatures([id]); } catch { /* already removed */ }
+          refetchRef.current();
+          deactivateRef.current();
+        } catch (err) {
+          console.error('Failed to update annotation geometry', err);
+        }
+      } else {
+        // Create mode: open the create modal
         setDrawnFeature(cleanFeature);
         setDrawnFeatureId(id);
         setModalOpen(true);
@@ -88,6 +124,8 @@ export default function AnnotationDrawControl({
 
   const handleAnnotationSuccess = () => {
     removeDrawnFeature();
+    refetch();
+    deactivate();
   };
 
   const handleAnnotationCancel = () => {
