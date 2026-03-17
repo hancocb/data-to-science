@@ -112,7 +112,7 @@ The D2S web application is containerized using Docker, enabling consistent deplo
 
 
 # Acknowledgements
-This work was partially supported by the Purdue Plant Science 2.0 Initiative, the Institute for Digital Forestry at Purdue, the PERSEUS grant (#2023-68012-38992) under USDA NIFA, the EFFICACI grant (#NR233A750004G044) under NCRS, and the National Agricultural Producers Data Cooperative (Award 2023-77039-41033; Sub-award 25-6231-0428-008) under USDA.
+This work was partially supported by the Purdue Plant Science 2.0 Initiative, the Institute for Digital Forestry at Purdue, the intramural research program (Award 2022-70412-38454) under USDA NIFA, the PERSEUS grant (Award 2023-68012-38992) under USDA NIFA, and the National Agricultural Producers Data Cooperative (Award 2023-77039-41033; Sub-award 25-6231-0428-008) under USDA. The views and conclusions contained herein are those of the authors and should not be interpreted as representing the official policies, either expressed or implied, of NIFA or the U.S. Government. The U.S. Government is authorized to reproduce and distribute reprints for governmental purposes, notwithstanding any copyright annotation therein.
 
 
 # Author Contributions:
