@@ -64,9 +64,16 @@ def send_email(
     recipients: list[EmailStr],
     body: str,
     background_tasks: BackgroundTasks,
+    cc: list[EmailStr] | None = None,
+    reply_to: list[EmailStr] | None = None,
 ) -> None:
     message = MessageSchema(
-        subject=subject, recipients=recipients, body=body, subtype=MessageType.html
+        subject=subject,
+        recipients=recipients,
+        cc=cc or [],
+        reply_to=reply_to or [],
+        body=body,
+        subtype=MessageType.html,
     )
     if settings.MAIL_ENABLED:
         background_tasks.add_task(fm.send_message, message)

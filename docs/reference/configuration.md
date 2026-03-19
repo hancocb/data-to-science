@@ -43,6 +43,7 @@ You must provide a value for `SECRET_KEY` in your `backend.env` file. Use a cryp
 | `MAIL_FROM` | Sender email address. |
 | `MAIL_FROM_NAME` | Name of sender. |
 | `MAIL_ADMINS` | List of emails that should receive admin mail separated by commas. |
+| `MAIL_CONTACT_RECIPIENTS` | List of emails (comma-separated) CC'd on contact form submissions. When set, the submitting user receives a confirmation and these recipients are CC'd. Falls back to `MAIL_FROM` if empty. |
 | `MAIL_PORT` | SMTP server port. |
 | `MAPBOX_ACCESS_TOKEN` | Mapbox access token for satellite imagery (optional). |
 | `POINT_LIMIT` | Total number of points to be used when generating point cloud preview images. |
