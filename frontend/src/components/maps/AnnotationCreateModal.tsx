@@ -12,6 +12,7 @@ import Modal from '../Modal';
 
 import api from '../../api';
 import { Visibility } from './contexts/AnnotationContext';
+import { useMapContext } from './MapContext';
 
 type AnnotationFormData = {
   description: string;
@@ -57,6 +58,8 @@ export default function AnnotationCreateModal({
   onCancel,
 }: AnnotationCreateModalProps) {
   const [status, setStatus] = useState<Status | null>(null);
+  const { activeProject } = useMapContext();
+  const isViewer = activeProject?.role === 'viewer';
 
   const methods = useForm<AnnotationFormData>({
     defaultValues,
@@ -136,41 +139,48 @@ export default function AnnotationCreateModal({
                 required={false}
                 placeholder="e.g. erosion, field-edge, note"
               />
-              <fieldset>
-                <legend className="text-sm font-medium text-gray-700">
-                  Visibility
-                </legend>
-                <div className="mt-1 flex flex-col gap-2">
-                  <label className="flex items-start gap-2 text-sm cursor-pointer">
-                    <input
-                      type="radio"
-                      value="OWNER"
-                      {...register('visibility')}
-                      className="mt-0.5 h-4 w-4 text-primary border-gray-300 focus:ring-primary"
-                    />
-                    <span>
-                      <span className="font-medium">Personal</span>
-                      <span className="block text-xs text-slate-500">
-                        Only you can view this annotation
+              {isViewer ? (
+                <p className="text-sm text-slate-500">
+                  Visibility: <span className="font-medium">Personal</span>
+                </p>
+              ) : (
+                <fieldset>
+                  <legend className="text-sm font-medium text-gray-700">
+                    Visibility
+                  </legend>
+                  <div className="mt-1 flex flex-col gap-2">
+                    <label className="flex items-start gap-2 text-sm cursor-pointer">
+                      <input
+                        type="radio"
+                        value="OWNER"
+                        {...register('visibility')}
+                        className="mt-0.5 h-4 w-4 text-primary border-gray-300 focus:ring-primary"
+                      />
+                      <span>
+                        <span className="font-medium">Personal</span>
+                        <span className="block text-xs text-slate-500">
+                          Only you can view this annotation
+                        </span>
                       </span>
-                    </span>
-                  </label>
-                  <label className="flex items-start gap-2 text-sm cursor-pointer">
-                    <input
-                      type="radio"
-                      value="PROJECT"
-                      {...register('visibility')}
-                      className="mt-0.5 h-4 w-4 text-primary border-gray-300 focus:ring-primary"
-                    />
-                    <span>
-                      <span className="font-medium">Project</span>
-                      <span className="block text-xs text-slate-500">
-                        Anyone with access to the project can view this annotation
+                    </label>
+                    <label className="flex items-start gap-2 text-sm cursor-pointer">
+                      <input
+                        type="radio"
+                        value="PROJECT"
+                        {...register('visibility')}
+                        className="mt-0.5 h-4 w-4 text-primary border-gray-300 focus:ring-primary"
+                      />
+                      <span>
+                        <span className="font-medium">Project</span>
+                        <span className="block text-xs text-slate-500">
+                          Anyone with access to the project can view this
+                          annotation
+                        </span>
                       </span>
-                    </span>
-                  </label>
-                </div>
-              </fieldset>
+                    </label>
+                  </div>
+                </fieldset>
+              )}
               <div className="flex items-center justify-between mt-4">
                 <div className="w-36">
                   <OutlineButton size="sm" type="button" onClick={handleCancel}>

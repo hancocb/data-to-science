@@ -42,6 +42,7 @@ export interface Annotation {
   style: AnnotationStyle | null;
   created_at: string;
   updated_at: string;
+  created_by: { id: string } | null;
   tag_rows: AnnotationTag[];
   attachments: AnnotationAttachment[];
 }

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app import crud
 from app.api import deps
-from app.core.config import settings
+from app.core.files import get_absolute_filepath
 from app.models.annotation_attachment import AnnotationAttachment
 from app.models.data_product import DataProduct
 from app.models.user import User
@@ -20,15 +20,6 @@ from app.schemas.annotation_attachment import (
 router = APIRouter()
 
 logger = logging.getLogger("__name__")
-
-
-def _get_absolute_filepath(relative_path: str) -> str:
-    """Convert a /static/... relative URL to an absolute filesystem path."""
-    if os.environ.get("RUNNING_TESTS") == "1":
-        static_dir = settings.TEST_STATIC_DIR
-    else:
-        static_dir = settings.STATIC_DIR
-    return relative_path.replace("/static/", f"{static_dir}/", 1)
 
 
 def _get_verified_attachment(
@@ -64,7 +55,7 @@ def download_annotation_attachment(
     """Download an annotation attachment by ID."""
     attachment = _get_verified_attachment(db, annotation_id, attachment_id, data_product)
 
-    abs_path = _get_absolute_filepath(attachment.filepath)
+    abs_path = get_absolute_filepath(attachment.filepath)
     if not os.path.exists(abs_path):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -95,7 +86,7 @@ def delete_annotation_attachment(
 
     # Delete file from disk
     if attachment.filepath:
-        abs_path = _get_absolute_filepath(attachment.filepath)
+        abs_path = get_absolute_filepath(attachment.filepath)
         if os.path.exists(abs_path):
             os.remove(abs_path)
 

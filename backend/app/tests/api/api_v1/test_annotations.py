@@ -66,10 +66,10 @@ def test_create_annotation_with_project_manager_role(
     assert response_data["created_by_id"] == str(current_user.id)
 
 
-def test_create_annotation_with_project_viewer_role(
+def test_create_personal_annotation_with_project_viewer_role(
     client: TestClient, db: Session, normal_user_access_token: str
 ) -> None:
-    """Test creating an annotation with project viewer role (should fail)."""
+    """Test that a viewer can create a personal (OWNER) annotation."""
     current_user = get_current_user(db, normal_user_access_token)
     data_product = SampleDataProduct(db)
     create_project_member(
@@ -84,6 +84,35 @@ def test_create_annotation_with_project_viewer_role(
         f"{settings.API_V1_STR}/projects/{data_product.project.id}"
         f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations",
         json=annotation_in.model_dump(),
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    response_data = response.json()
+    assert response_data["description"] == "Viewer's annotation"
+    assert response_data["visibility"] == "OWNER"
+    assert response_data["created_by_id"] == str(current_user.id)
+
+
+def test_create_project_annotation_with_viewer_role_forbidden(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test that a viewer cannot create a PROJECT-level annotation."""
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db)
+    create_project_member(
+        db,
+        member_id=current_user.id,
+        project_uuid=data_product.project.id,
+        role=Role.VIEWER,
+    )
+    annotation_in = create_annotation_in(description="Viewer's project annotation")
+    annotation_data = annotation_in.model_dump()
+    annotation_data["visibility"] = "PROJECT"
+
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations",
+        json=annotation_data,
     )
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -994,3 +1023,149 @@ def test_get_annotations_returns_persisted_styles(
     response_data = response.json()
     assert len(response_data) == 1
     assert response_data[0]["style"] == {"color": "#0000ff", "fill": "#9999ff", "opacity": 60}
+
+
+def test_delete_own_owner_annotation_with_manager_role(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test that a manager can delete their own personal (OWNER) annotation."""
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db)
+    create_project_member(
+        db,
+        member_id=current_user.id,
+        project_uuid=data_product.project.id,
+        role=Role.MANAGER,
+    )
+    annotation = create_annotation(
+        db,
+        data_product_id=data_product.obj.id,
+        created_by_id=current_user.id,
+        visibility=Visibility.OWNER,
+    )
+
+    response = client.delete(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations/{annotation.id}"
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert crud.annotation.get(db, id=annotation.id) is None
+
+
+def test_delete_own_project_annotation_with_manager_role(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test that a manager can delete their own shared (PROJECT) annotation."""
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db)
+    create_project_member(
+        db,
+        member_id=current_user.id,
+        project_uuid=data_product.project.id,
+        role=Role.MANAGER,
+    )
+    annotation = create_annotation(
+        db,
+        data_product_id=data_product.obj.id,
+        created_by_id=current_user.id,
+        visibility=Visibility.PROJECT,
+    )
+
+    response = client.delete(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations/{annotation.id}"
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert crud.annotation.get(db, id=annotation.id) is None
+
+
+def test_project_owner_can_delete_other_users_project_annotation(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test that a project owner can delete another user's shared (PROJECT) annotation."""
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db, user=current_user)
+
+    other_user = create_user(db)
+    create_project_member(
+        db,
+        member_id=other_user.id,
+        project_uuid=data_product.project.id,
+        role=Role.MANAGER,
+    )
+
+    annotation = create_annotation(
+        db,
+        data_product_id=data_product.obj.id,
+        created_by_id=other_user.id,
+        visibility=Visibility.PROJECT,
+    )
+
+    response = client.delete(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations/{annotation.id}"
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert crud.annotation.get(db, id=annotation.id) is None
+
+
+def test_manager_cannot_delete_other_users_project_annotation(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test that a manager cannot delete another user's shared (PROJECT) annotation."""
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db)
+    create_project_member(
+        db,
+        member_id=current_user.id,
+        project_uuid=data_product.project.id,
+        role=Role.MANAGER,
+    )
+
+    other_user = create_user(db)
+    annotation = create_annotation(
+        db,
+        data_product_id=data_product.obj.id,
+        created_by_id=other_user.id,
+        visibility=Visibility.PROJECT,
+    )
+
+    response = client.delete(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations/{annotation.id}"
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+def test_project_owner_cannot_delete_other_users_personal_annotation(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test that a project owner cannot delete another user's personal (OWNER) annotation."""
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db, user=current_user)
+
+    other_user = create_user(db)
+    create_project_member(
+        db,
+        member_id=other_user.id,
+        project_uuid=data_product.project.id,
+        role=Role.MANAGER,
+    )
+
+    annotation = create_annotation(
+        db,
+        data_product_id=data_product.obj.id,
+        created_by_id=other_user.id,
+        visibility=Visibility.OWNER,
+    )
+
+    response = client.delete(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations/{annotation.id}"
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
