@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.api import deps
-from app.models.project_type import ProjectType
+from app.models.enums.project_type import ProjectType
 from app.schemas.role import Role
 from app.tests.utils.indoor_project import create_indoor_project
 from app.tests.utils.project_member import create_project_member

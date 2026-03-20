@@ -2,6 +2,8 @@ from fastapi import APIRouter
 
 from app.api.api_v1.endpoints import (
     admin,
+    annotation_attachments,
+    annotations,
     auth,
     file_permission,
     flights,
@@ -64,6 +66,16 @@ api_router.include_router(
     data_products.router,
     prefix="/projects/{project_id}/flights/{flight_id}/data_products",
     tags=["data_products"],
+)
+api_router.include_router(
+    annotations.router,
+    prefix="/projects/{project_id}/flights/{flight_id}/data_products/{data_product_id}/annotations",
+    tags=["annotations"],
+)
+api_router.include_router(
+    annotation_attachments.router,
+    prefix="/projects/{project_id}/flights/{flight_id}/data_products/{data_product_id}/annotations/{annotation_id}/attachments",
+    tags=["annotation_attachments"],
 )
 api_router.include_router(
     raw_data.router,

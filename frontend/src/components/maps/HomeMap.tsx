@@ -11,6 +11,9 @@ import Map, {
 } from 'react-map-gl/maplibre';
 import { useLocation } from 'react-router';
 
+import AnnotationLayers from './AnnotationLayers';
+import AnnotationPopup from './AnnotationPopup';
+import AnnotationToolsToggle from './AnnotationToolsToggle';
 import ColorBarControl from './ColorBarControl';
 import GeocoderControl from './GeocoderControl';
 import ProjectCluster from './ProjectCluster';
@@ -49,7 +52,7 @@ export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
   const [isMapReady, setIsMapReady] = useState(false);
   const [popupInfo, setPopupInfo] = useState<PopupInfoProps | null>(null);
   const [config, setConfig] = useState<{ osmLabelFilter?: string } | null>(
-    null
+    null,
   );
 
   const {
@@ -265,16 +268,26 @@ export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
       {/* Display project vector layers when project active and layers selected */}
       {activeProject && <ProjectVectorTiles />}
 
+      {/* Display checked annotation GeoJSON layers */}
+      {activeProject && <AnnotationLayers />}
+
+      {/* Display popup when annotation feature clicked on map */}
+      {activeProject && <AnnotationPopup />}
+
       {/* Display project boundary when project activated */}
       {activeProject && (
         <ProjectBoundary setActiveProjectBBox={setActiveProjectBBox} />
       )}
+
+      {/* Annotation tool toggle (renders drawing tools when annotation mode active) */}
+      {activeProject && <AnnotationToolsToggle />}
 
       {/* Measurement tool control */}
       {activeProject && <MeasureToolsToggle />}
 
       {/* General controls */}
       {!activeProject && <GeocoderControl />}
+
       <NavigationControl />
       <ScaleControl />
     </Map>
