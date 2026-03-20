@@ -70,10 +70,10 @@ function ContactForm() {
         ...values,
       });
       if (response) {
-        setStatus({ type: 'success', msg: 'Message sent' });
+        setStatus({ type: 'success', msg: 'Message sent. A copy has been sent to your inbox.' });
       } else {
         setStatus({
-          type: 'success',
+          type: 'error',
           msg: 'Unable to send message',
         });
       }

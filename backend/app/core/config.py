@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     # Email
     MAIL_ENABLED: int = 0
     MAIL_ADMINS: str = ""
+    MAIL_CONTACT_RECIPIENTS: str = ""
     MAIL_USERNAME: EmailStr | str = ""
     MAIL_PASSWORD: SecretStr = SecretStr("")
     MAIL_FROM: EmailStr | str = ""
