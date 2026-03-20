@@ -6,10 +6,13 @@ from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from sqlalchemy import or_
+
 from app import crud
 from app.crud.base import CRUDBase
 from app.models.annotation import Annotation
 from app.models.annotation_tag import AnnotationTag
+from app.models.enums.visibility import Visibility
 from app.schemas.annotation import AnnotationCreate, AnnotationUpdate
 from app.schemas.annotation_tag import AnnotationTagCreate
 
@@ -51,6 +54,7 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
             data_product_id=data_product_id,
             created_by_id=created_by_id,
             visibility=obj_in_data.get("visibility", "OWNER"),
+            style=obj_in_data.get("style"),
         )
 
         # Use the provided session without closing it prematurely. FastAPI
@@ -104,16 +108,19 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
         return annotation
 
     def get_multi_by_data_product_id(
-        self, db: Session, data_product_id: UUID
+        self, db: Session, data_product_id: UUID, user_id: UUID
     ) -> Sequence[Annotation]:
-        """Return all annotations for a data product.
+        """Return annotations visible to the given user for a data product.
+
+        Returns annotations that are either PROJECT-visible or owned by the user.
 
         Args:
             db (Session): Database session.
             data_product_id (UUID): Data product ID.
+            user_id (UUID): ID of the requesting user.
 
         Returns:
-            Sequence[Annotation]: List of annotations for the data product.
+            Sequence[Annotation]: List of visible annotations for the data product.
         """
         statement = (
             select(Annotation)
@@ -122,7 +129,13 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
                 selectinload(Annotation.attachments),
                 selectinload(Annotation.tag_rows).selectinload(AnnotationTag.tag),
             )
-            .where(Annotation.data_product_id == data_product_id)
+            .where(
+                Annotation.data_product_id == data_product_id,
+                or_(
+                    Annotation.visibility == Visibility.PROJECT,
+                    Annotation.created_by_id == user_id,
+                ),
+            )
         )
 
         annotations = db.scalars(statement).all()

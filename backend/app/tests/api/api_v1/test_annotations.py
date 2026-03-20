@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app import crud
 from app.api.deps import get_current_user
 from app.core.config import settings
+from app.models.enums.visibility import Visibility
 from app.schemas.role import Role
 from app.tests.utils.annotation import (
     create_annotation,
@@ -13,6 +14,7 @@ from app.tests.utils.annotation import (
 )
 from app.tests.utils.data_product import SampleDataProduct
 from app.tests.utils.project_member import create_project_member
+from app.tests.utils.user import create_user, login_and_get_access_token
 
 
 def test_create_annotation_with_project_owner_role(
@@ -268,7 +270,13 @@ def test_get_annotations_with_project_viewer_role(
         project_uuid=data_product.project.id,
         role=Role.VIEWER,
     )
-    create_multiple_annotations(db, count=2, data_product_id=data_product.obj.id)
+    # Create PROJECT-visible annotations so the viewer can see them
+    create_multiple_annotations(
+        db,
+        count=2,
+        data_product_id=data_product.obj.id,
+        visibility=Visibility.PROJECT,
+    )
 
     response = client.get(
         f"{settings.API_V1_STR}/projects/{data_product.project.id}"
@@ -795,3 +803,194 @@ def test_get_annotation_returns_tags(
 
     tag_names = {tag_row["tag"]["name"] for tag_row in response_data["tag_rows"]}
     assert tag_names == {"tag-a", "tag-b"}
+
+
+def test_get_annotations_hides_other_users_personal_annotations(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test that User A cannot see User B's personal (OWNER) annotations."""
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db, user=current_user)
+
+    # Create a second user and add them to the project
+    other_user = create_user(db)
+    create_project_member(
+        db,
+        member_id=other_user.id,
+        project_uuid=data_product.project.id,
+        role=Role.MANAGER,
+    )
+
+    # Other user creates a personal (OWNER) annotation
+    create_annotation(
+        db,
+        description="Other user's personal annotation",
+        data_product_id=data_product.obj.id,
+        created_by_id=other_user.id,
+        visibility=Visibility.OWNER,
+    )
+
+    # Current user creates their own personal annotation
+    create_annotation(
+        db,
+        description="My personal annotation",
+        data_product_id=data_product.obj.id,
+        created_by_id=current_user.id,
+        visibility=Visibility.OWNER,
+    )
+
+    # Current user should only see their own annotation
+    response = client.get(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations"
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    response_data = response.json()
+    assert len(response_data) == 1
+    assert response_data[0]["description"] == "My personal annotation"
+
+
+def test_get_annotations_shows_other_users_project_annotations(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test that User A can see User B's project-level annotations."""
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db, user=current_user)
+
+    # Create a second user and add them to the project
+    other_user = create_user(db)
+    create_project_member(
+        db,
+        member_id=other_user.id,
+        project_uuid=data_product.project.id,
+        role=Role.MANAGER,
+    )
+
+    # Other user creates a project-level annotation
+    create_annotation(
+        db,
+        description="Other user's project annotation",
+        data_product_id=data_product.obj.id,
+        created_by_id=other_user.id,
+        visibility=Visibility.PROJECT,
+    )
+
+    # Current user creates their own personal annotation
+    create_annotation(
+        db,
+        description="My personal annotation",
+        data_product_id=data_product.obj.id,
+        created_by_id=current_user.id,
+        visibility=Visibility.OWNER,
+    )
+
+    # Current user should see both annotations
+    response = client.get(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations"
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    response_data = response.json()
+    assert len(response_data) == 2
+    descriptions = {a["description"] for a in response_data}
+    assert descriptions == {
+        "Other user's project annotation",
+        "My personal annotation",
+    }
+
+
+def test_create_annotation_with_style(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test creating an annotation with a style."""
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db, user=current_user)
+    annotation_in = create_annotation_in(description="Styled annotation")
+
+    annotation_data = annotation_in.model_dump()
+    annotation_data["style"] = {"color": "#ff0000", "fill": "#ff9999", "opacity": 80}
+
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations",
+        json=annotation_data,
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    response_data = response.json()
+    assert response_data["style"] == {"color": "#ff0000", "fill": "#ff9999", "opacity": 80}
+
+
+def test_create_annotation_without_style_returns_null(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test creating an annotation without a style returns null."""
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db, user=current_user)
+    annotation_in = create_annotation_in(description="No style annotation")
+
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations",
+        json=annotation_in.model_dump(),
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    response_data = response.json()
+    assert response_data["style"] is None
+
+
+def test_update_annotation_style(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test updating an annotation's style."""
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db, user=current_user)
+    annotation = create_annotation(
+        db,
+        data_product_id=data_product.obj.id,
+        created_by_id=current_user.id,
+    )
+
+    update_data = {"style": {"color": "#00ff00", "fill": "#99ff99", "opacity": 50}}
+    response = client.put(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations/{annotation.id}",
+        json=update_data,
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    response_data = response.json()
+    assert response_data["style"] == {"color": "#00ff00", "fill": "#99ff99", "opacity": 50}
+
+
+def test_get_annotations_returns_persisted_styles(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test that GET annotations returns persisted styles."""
+    current_user = get_current_user(db, normal_user_access_token)
+    data_product = SampleDataProduct(db, user=current_user)
+    annotation_in = create_annotation_in(description="Styled annotation")
+
+    annotation_data = annotation_in.model_dump()
+    annotation_data["style"] = {"color": "#0000ff", "fill": "#9999ff", "opacity": 60}
+
+    # Create annotation with style
+    client.post(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations",
+        json=annotation_data,
+    )
+
+    # Fetch annotations and verify style persists
+    response = client.get(
+        f"{settings.API_V1_STR}/projects/{data_product.project.id}"
+        f"/flights/{data_product.flight.id}/data_products/{data_product.obj.id}/annotations"
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    response_data = response.json()
+    assert len(response_data) == 1
+    assert response_data[0]["style"] == {"color": "#0000ff", "fill": "#9999ff", "opacity": 60}

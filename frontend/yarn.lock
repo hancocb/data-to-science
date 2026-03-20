@@ -1698,6 +1698,16 @@
     "@types/geojson" "^7946.0.10"
     tslib "^2.8.1"
 
+"@turf/centroid@^7.3.4":
+  version "7.3.4"
+  resolved "https://registry.yarnpkg.com/@turf/centroid/-/centroid-7.3.4.tgz#8c2722075721a04940fa0492287b54fadbca4bb6"
+  integrity sha512-6c3kyTSKBrmiPMe75UkHw6MgedroZ6eR5usEvdlDhXgA3MudFPXIZkMFmMd1h9XeJ9xFfkmq+HPCdF0cOzvztA==
+  dependencies:
+    "@turf/helpers" "7.3.4"
+    "@turf/meta" "7.3.4"
+    "@types/geojson" "^7946.0.10"
+    tslib "^2.8.1"
+
 "@turf/circle@^7.2.0":
   version "7.2.0"
   resolved "https://registry.yarnpkg.com/@turf/circle/-/circle-7.2.0.tgz#42b3e62d024774a23d7d1e3ec8c577035ad6c120"

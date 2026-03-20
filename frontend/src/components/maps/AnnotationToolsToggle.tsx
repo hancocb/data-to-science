@@ -36,11 +36,11 @@ export default function AnnotationToolsToggle() {
     }
   }, [active, shouldRender]);
 
-  // Only render when a data product is active
-  if (!activeDataProduct || !activeProject) return null;
+  // Only render when annotation mode is active with a data product
+  if (!activeDataProduct || !activeProject || !active) return null;
 
   return (
-    <div className="absolute bottom-[8.75rem] right-2 m-2.5 z-10 pointer-events-none">
+    <div className="absolute bottom-9 right-2 m-2.5 z-10 pointer-events-none">
       <div className="flex items-center">
         {shouldRender && (
           <div className="annotation-tools-container pointer-events-auto mr-[-6px] pr-[8px]">

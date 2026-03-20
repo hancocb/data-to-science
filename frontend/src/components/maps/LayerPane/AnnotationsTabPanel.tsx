@@ -47,6 +47,8 @@ export default function AnnotationsTabPanel() {
     error,
     activate,
     setEditingAnnotation,
+    hoveredAnnotationId,
+    setHoveredAnnotationId,
     toggleChecked,
     updateStyle,
     refetch,
@@ -143,7 +145,13 @@ export default function AnnotationsTabPanel() {
               return (
                 <div
                   key={annotation.id}
-                  className="flex flex-col p-2 bg-slate-50 rounded-sm"
+                  className={`flex flex-col p-2 rounded-sm transition-colors ${
+                    hoveredAnnotationId === annotation.id
+                      ? 'bg-slate-200'
+                      : 'bg-slate-50'
+                  }`}
+                  onMouseEnter={() => setHoveredAnnotationId(annotation.id)}
+                  onMouseLeave={() => setHoveredAnnotationId(null)}
                 >
                   {/* Description and checkbox */}
                   <div className="flex items-center justify-between gap-2">
@@ -303,11 +311,11 @@ export default function AnnotationsTabPanel() {
                     {expandedIds.has(annotation.id) && (
                       <div className="mt-2 flex flex-col gap-2">
                         {annotation.attachments?.length > 0 && (
-                          <div className="grid grid-cols-3 gap-2">
+                          <div className="flex gap-2 overflow-x-auto">
                             {annotation.attachments.map((att) => (
                               <div
                                 key={att.id}
-                                className="relative group rounded overflow-hidden bg-slate-200 cursor-pointer"
+                                className="relative group rounded overflow-hidden bg-slate-200 cursor-pointer shrink-0 w-24"
                                 onClick={() => {
                                   setViewerAttachment(att);
                                   setViewerOpen(true);
@@ -316,7 +324,7 @@ export default function AnnotationsTabPanel() {
                                 {att.content_type.startsWith('video/') ? (
                                   <video
                                     src={att.filepath}
-                                    className="w-full h-20 object-cover"
+                                    className="h-20 w-full object-cover"
                                     muted
                                     preload="metadata"
                                   />
@@ -324,7 +332,7 @@ export default function AnnotationsTabPanel() {
                                   <img
                                     src={att.filepath}
                                     alt={att.original_filename}
-                                    className="w-full h-20 object-cover"
+                                    className="h-20 w-full object-cover"
                                   />
                                 )}
                                 <div className="absolute top-0.5 right-0.5 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">

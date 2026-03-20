@@ -4,6 +4,7 @@ from uuid import UUID
 
 from app import crud
 from app.models.annotation import Annotation
+from app.models.enums.visibility import Visibility
 from app.schemas.annotation import AnnotationCreate
 from app.tests.utils.data_product import SampleDataProduct
 from app.tests.utils.utils import get_geojson_feature_collection
@@ -15,6 +16,7 @@ def create_annotation(
     geometry_type: str = "Point",
     data_product_id: UUID | None = None,
     created_by_id: UUID | None = None,
+    visibility: Visibility = Visibility.OWNER,
 ) -> Annotation:
     """Create a test annotation.
 
@@ -24,6 +26,7 @@ def create_annotation(
         geometry_type (str): Type of geometry ("Point", "LineString", "Polygon").
         data_product_id (UUID | None): Data product ID. If None, creates a new data product.
         created_by_id (UUID | None): User ID who created the annotation.
+        visibility (Visibility): Annotation visibility level.
 
     Returns:
         Annotation: Created annotation object.
@@ -41,6 +44,7 @@ def create_annotation(
     annotation_in = AnnotationCreate(
         description=description,
         geom=sample_feature,
+        visibility=visibility,
     )
 
     annotation = crud.annotation.create_with_data_product(
@@ -81,6 +85,7 @@ def create_multiple_annotations(
     data_product_id: UUID | None = None,
     base_description: str = "Test annotation",
     created_by_id: UUID | None = None,
+    visibility: Visibility = Visibility.OWNER,
 ) -> list[Annotation]:
     """Create multiple test annotations for the same data product.
 
@@ -90,6 +95,7 @@ def create_multiple_annotations(
         data_product_id (UUID | None): Data product ID. If None, creates a new data product.
         base_description (str): Base description for annotations (will be numbered).
         created_by_id (UUID | None): User ID who created the annotations.
+        visibility (Visibility): Annotation visibility level.
 
     Returns:
         list[Annotation]: List of created annotation objects.
@@ -112,6 +118,7 @@ def create_multiple_annotations(
             geometry_type=geometry_type,
             data_product_id=data_product_id,
             created_by_id=created_by_id,
+            visibility=visibility,
         )
         annotations.append(annotation)
 

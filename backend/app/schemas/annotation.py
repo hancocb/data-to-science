@@ -26,12 +26,14 @@ class AnnotationCreate(AnnotationBase):
     geom: Feature
     tags: List[str] = Field(default_factory=list)
     visibility: Visibility = Visibility.OWNER
+    style: Optional[dict] = None
 
 
 # properties to receive via API on update
 class AnnotationUpdate(AnnotationBase):
     tags: Optional[List[str]] = None
     visibility: Optional[Visibility] = None
+    style: Optional[dict] = None
 
 
 # properties shared by models stored in DB
@@ -45,6 +47,7 @@ class AnnotationInDBBase(AnnotationBase):
     data_product_id: UUID4
     created_by_id: Optional[UUID4] = None
     visibility: Visibility = Visibility.OWNER
+    style: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
 

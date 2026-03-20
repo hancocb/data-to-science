@@ -3,13 +3,22 @@ import { FaRuler } from 'react-icons/fa6';
 
 import MapToolToggleButton from './MapToolToggleButton';
 import MeasureTerraDrawControl from './MeasureTerraDrawControl';
+import { useAnnotationContext } from './contexts/AnnotationContext';
 
 type MeasureUnitType = 'metric' | 'imperial';
 
 export default function MeasureToolsToggle() {
+  const { active: annotationActive } = useAnnotationContext();
   const [isExpanded, setIsExpanded] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
   const [unitType, setUnitType] = useState<MeasureUnitType>('metric');
+
+  // Collapse measure tools when annotation mode activates
+  useEffect(() => {
+    if (annotationActive && isExpanded) {
+      setIsExpanded(false);
+    }
+  }, [annotationActive, isExpanded]);
 
   useEffect(() => {
     if (isExpanded) {
@@ -36,6 +45,8 @@ export default function MeasureToolsToggle() {
   const toggleUnitType = () => {
     setUnitType(unitType === 'metric' ? 'imperial' : 'metric');
   };
+
+  if (annotationActive) return null;
 
   return (
     <>

@@ -55,6 +55,7 @@ class Annotation(Base):
         default=Visibility.OWNER,
         server_default=Visibility.OWNER.value,
     )
+    style: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Foreign keys
     data_product_id: Mapped[uuid.UUID] = mapped_column(

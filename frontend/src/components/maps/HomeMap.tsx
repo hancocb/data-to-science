@@ -12,6 +12,7 @@ import Map, {
 import { useLocation } from 'react-router';
 
 import AnnotationLayers from './AnnotationLayers';
+import AnnotationPopup from './AnnotationPopup';
 import AnnotationToolsToggle from './AnnotationToolsToggle';
 import ColorBarControl from './ColorBarControl';
 import GeocoderControl from './GeocoderControl';
@@ -269,6 +270,9 @@ export default function HomeMap({ layers }: { layers: MapLayerProps[] }) {
 
       {/* Display checked annotation GeoJSON layers */}
       {activeProject && <AnnotationLayers />}
+
+      {/* Display popup when annotation feature clicked on map */}
+      {activeProject && <AnnotationPopup />}
 
       {/* Display project boundary when project activated */}
       {activeProject && (

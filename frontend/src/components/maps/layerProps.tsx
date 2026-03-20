@@ -147,11 +147,12 @@ export const getProjectVectorLayer = (
 export const getAnnotationLayer = (
   annotationId: string,
   geomType: string,
-  style: { color: string; fill: string; opacity: number }
+  style: { color: string; fill: string; opacity: number },
+  highlighted = false
 ): LayerProps | LayerProps[] => {
   const sourceId = `annotation-${annotationId}`;
   const type = geomType.toLowerCase();
-  const opacity = style.opacity / 100;
+  const opacity = highlighted ? 1 : style.opacity / 100;
 
   switch (type) {
     case 'point':
@@ -160,10 +161,10 @@ export const getAnnotationLayer = (
         type: 'circle',
         source: sourceId,
         paint: {
-          'circle-radius': 6,
+          'circle-radius': highlighted ? 10 : 6,
           'circle-color': style.color,
           'circle-opacity': opacity,
-          'circle-stroke-width': 2,
+          'circle-stroke-width': highlighted ? 3 : 2,
           'circle-stroke-color': '#ffffff',
           'circle-stroke-opacity': opacity,
         },
@@ -178,7 +179,7 @@ export const getAnnotationLayer = (
           paint: {
             'line-color': style.color,
             'line-opacity': opacity,
-            'line-width': 3,
+            'line-width': highlighted ? 5 : 3,
           },
         },
         {
@@ -208,7 +209,7 @@ export const getAnnotationLayer = (
           source: sourceId,
           paint: {
             'fill-color': style.fill,
-            'fill-opacity': opacity * 0.3,
+            'fill-opacity': highlighted ? opacity * 0.5 : opacity * 0.3,
           },
         },
         {
@@ -218,7 +219,7 @@ export const getAnnotationLayer = (
           paint: {
             'line-color': style.color,
             'line-opacity': opacity,
-            'line-width': 2,
+            'line-width': highlighted ? 4 : 2,
           },
         },
         {

@@ -1,3 +1,4 @@
+import maplibregl from 'maplibre-gl';
 import { useMemo, useEffect, useRef } from 'react';
 import { Layer, Source, useMap } from 'react-map-gl/maplibre';
 
@@ -17,7 +18,16 @@ function getMeasurement(annotation: Annotation): string | null {
 }
 
 export default function AnnotationLayers() {
-  const { annotations, checkedIds, styles, visible } = useAnnotationContext();
+  const {
+    active,
+    annotations,
+    checkedIds,
+    styles,
+    visible,
+    hoveredAnnotationId,
+    setHoveredAnnotationId,
+    setSelectedAnnotationId,
+  } = useAnnotationContext();
   const { current: map } = useMap();
   const previousIdsRef = useRef<Set<string>>(new Set());
 
@@ -65,6 +75,76 @@ export default function AnnotationLayers() {
     previousIdsRef.current = currentIds;
   }, [annotations, checkedIds, map]);
 
+  // Build the list of annotation layer IDs to query against.
+  // Kept as a ref so map event handlers always see the latest value
+  // without needing to re-register on every change.
+  const annotationLayerIdsRef = useRef<string[]>([]);
+  useEffect(() => {
+    const ids: string[] = [];
+    for (const a of annotations) {
+      if (!checkedIds.has(a.id)) continue;
+      const sourceId = `annotation-${a.id}`;
+      ids.push(sourceId);
+      const geomType = a.geom.geometry?.type;
+      if (geomType === 'Polygon') ids.push(`${sourceId}-border`);
+    }
+    annotationLayerIdsRef.current = ids;
+  }, [annotations, checkedIds]);
+
+  // Register map-level click and mousemove handlers using queryRenderedFeatures.
+  // This avoids timing issues with per-layer registration since layers may not
+  // exist on the map when the effect first runs.
+  useEffect(() => {
+    if (!map || active) return;
+    const mapInstance = map.getMap();
+    let currentHoverId: string | null = null;
+
+    const queryAnnotationLayers = (point: maplibregl.PointLike) => {
+      const ids = annotationLayerIdsRef.current.filter((id) =>
+        mapInstance.getLayer(id)
+      );
+      if (ids.length === 0) return null;
+      const features = mapInstance.queryRenderedFeatures(point, { layers: ids });
+      if (features.length === 0) return null;
+      const match = features[0].layer.id.match(/^annotation-([0-9a-f-]+)/);
+      return match ? match[1] : null;
+    };
+
+    const handleClick = (e: maplibregl.MapMouseEvent) => {
+      const annotationId = queryAnnotationLayers(e.point);
+      if (annotationId) {
+        setSelectedAnnotationId(annotationId);
+      }
+    };
+
+    const handleMouseMove = (e: maplibregl.MapMouseEvent) => {
+      const annotationId = queryAnnotationLayers(e.point);
+      if (annotationId) {
+        mapInstance.getCanvas().style.cursor = 'pointer';
+        if (annotationId !== currentHoverId) {
+          currentHoverId = annotationId;
+          setHoveredAnnotationId(annotationId);
+        }
+      } else if (currentHoverId) {
+        mapInstance.getCanvas().style.cursor = '';
+        currentHoverId = null;
+        setHoveredAnnotationId(null);
+      }
+    };
+
+    mapInstance.on('click', handleClick);
+    mapInstance.on('mousemove', handleMouseMove);
+
+    return () => {
+      mapInstance.off('click', handleClick);
+      mapInstance.off('mousemove', handleMouseMove);
+      if (currentHoverId) {
+        mapInstance.getCanvas().style.cursor = '';
+        setHoveredAnnotationId(null);
+      }
+    };
+  }, [map, active, setSelectedAnnotationId, setHoveredAnnotationId]);
+
   const enrichedAnnotations = useMemo(
     () =>
       annotations
@@ -91,7 +171,8 @@ export default function AnnotationLayers() {
     const sourceId = `annotation-${annotation.id}`;
     const geomType = annotation.geom.geometry?.type || 'Point';
     const style = styles[annotation.id] || defaultAnnotationStyle;
-    const layerProps = getAnnotationLayer(annotation.id, geomType, style);
+    const highlighted = hoveredAnnotationId === annotation.id;
+    const layerProps = getAnnotationLayer(annotation.id, geomType, style, highlighted);
     const renderLayer = (props: React.ComponentProps<typeof Layer>) => (
       <Layer key={props.id} {...props} />
     );

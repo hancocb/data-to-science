@@ -4,8 +4,7 @@ import { useAnnotationContext } from '../contexts/AnnotationContext';
 
 const AnnotationInstructions = () => (
   <p className="mt-2 text-sm text-gray-500">
-    Use the draw tools in the top left corner of the map to create an
-    annotation.
+    Use the draw tools on the right side of the map to create an annotation.
   </p>
 );
 

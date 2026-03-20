@@ -69,12 +69,13 @@ def get_annotation_by_id(
 
 @router.get("", response_model=List[Annotation], status_code=status.HTTP_200_OK)
 def get_annotations(
+    current_user: User = Depends(deps.get_current_approved_user),
     data_product: DataProduct = Depends(deps.can_read_data_product),
     db: Session = Depends(deps.get_db),
 ) -> Any:
     """Get annotations for a data product."""
     annotations = crud.annotation.get_multi_by_data_product_id(
-        db=db, data_product_id=data_product.id
+        db=db, data_product_id=data_product.id, user_id=current_user.id
     )
     return annotations
 

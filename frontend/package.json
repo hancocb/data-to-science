@@ -34,6 +34,7 @@
     "@turf/bbox-polygon": "^7.2.0",
     "@turf/boolean-contains": "^7.2.0",
     "@turf/center": "^7.1.0",
+    "@turf/centroid": "^7.3.4",
     "@turf/flip": "^6.5.0",
     "@turf/helpers": "^7.2.0",
     "@turf/length": "^7.3.4",

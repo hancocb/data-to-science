@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useMemo,
   useReducer,
+  useRef,
   useState,
 } from 'react';
 import { isAxiosError } from 'axios';
@@ -38,6 +39,7 @@ export interface Annotation {
   description: string;
   geom: Feature;
   visibility: Visibility;
+  style: AnnotationStyle | null;
   created_at: string;
   updated_at: string;
   tag_rows: AnnotationTag[];
@@ -104,7 +106,7 @@ function reducer(state: State, action: Action): State {
     case 'SET_ANNOTATIONS': {
       const styles: Record<string, AnnotationStyle> = {};
       for (const a of action.payload) {
-        styles[a.id] = state.styles[a.id] || { ...defaultAnnotationStyle };
+        styles[a.id] = state.styles[a.id] || a.style || { ...defaultAnnotationStyle };
       }
       return {
         ...state,
@@ -169,6 +171,10 @@ type Ctx = {
   ) => void;
   editingAnnotation: Annotation | null;
   setEditingAnnotation: (annotation: Annotation | null) => void;
+  hoveredAnnotationId: string | null;
+  setHoveredAnnotationId: (id: string | null) => void;
+  selectedAnnotationId: string | null;
+  setSelectedAnnotationId: (id: string | null) => void;
   visible: boolean;
   setVisible: (visible: boolean) => void;
   refetch: () => void;
@@ -183,6 +189,8 @@ export function AnnotationProvider({
 }) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [editingAnnotation, setEditingAnnotation] = useState<Annotation | null>(null);
+  const [hoveredAnnotationId, setHoveredAnnotationId] = useState<string | null>(null);
+  const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
   const { activeDataProduct, activeProject } = useMapContext();
 
@@ -234,6 +242,37 @@ export function AnnotationProvider({
     setVisible(false);
   }, [activeDataProduct]);
 
+  // Debounced style persistence — saves to API 500ms after last change
+  const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const stylesRef = useRef(state.styles);
+  stylesRef.current = state.styles;
+
+  const debouncedSaveStyle = useCallback(
+    (annotationId: string) => {
+      if (!activeProject || !activeDataProduct) return;
+      clearTimeout(saveTimersRef.current[annotationId]);
+      saveTimersRef.current[annotationId] = setTimeout(() => {
+        const style = stylesRef.current[annotationId];
+        if (!style) return;
+        api
+          .put(
+            `/projects/${activeProject.id}/flights/${activeDataProduct.flight_id}/data_products/${activeDataProduct.id}/annotations/${annotationId}`,
+            { style }
+          )
+          .catch((err) => console.error('Failed to save annotation style', err));
+      }, 500);
+    },
+    [activeProject, activeDataProduct]
+  );
+
+  // Clean up pending timers on unmount
+  useEffect(() => {
+    const timers = saveTimersRef.current;
+    return () => {
+      Object.values(timers).forEach(clearTimeout);
+    };
+  }, []);
+
   const value = useMemo<Ctx>(
     () => ({
       active: state.active,
@@ -257,14 +296,21 @@ export function AnnotationProvider({
         id: string,
         property: keyof AnnotationStyle,
         value: string | number
-      ) => dispatch({ type: 'UPDATE_STYLE', payload: { id, property, value } }),
+      ) => {
+        dispatch({ type: 'UPDATE_STYLE', payload: { id, property, value } });
+        debouncedSaveStyle(id);
+      },
       editingAnnotation,
       setEditingAnnotation,
+      hoveredAnnotationId,
+      setHoveredAnnotationId,
+      selectedAnnotationId,
+      setSelectedAnnotationId,
       visible,
       setVisible,
       refetch: () => fetchAnnotations(),
     }),
-    [state, editingAnnotation, deactivate, visible, fetchAnnotations]
+    [state, editingAnnotation, hoveredAnnotationId, selectedAnnotationId, deactivate, debouncedSaveStyle, visible, fetchAnnotations]
   );
 
   return (
