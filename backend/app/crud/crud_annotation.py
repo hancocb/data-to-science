@@ -1,14 +1,14 @@
 import json
+import os
 from typing import Any, Sequence
 from uuid import UUID
 
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from sqlalchemy import or_
-
 from app import crud
+from app.core.files import get_absolute_filepath
 from app.crud.base import CRUDBase
 from app.models.annotation import Annotation
 from app.models.annotation_tag import AnnotationTag
@@ -227,6 +227,21 @@ class CRUDAnnotation(CRUDBase[Annotation, AnnotationCreate, AnnotationUpdate]):
         if result is None:
             raise RuntimeError(f"Annotation {annotation_id} not found after update")
         return result
+
+    def remove(self, db: Session, *, id: UUID) -> Annotation | None:
+        """Delete an annotation and clean up attachment files from disk."""
+        db_obj = self.get_with_created_by(db, id=id)
+        if db_obj is None:
+            return None
+        # Delete attachment files from disk before cascade removes DB records
+        for attachment in db_obj.attachments:
+            if attachment.filepath:
+                abs_path = get_absolute_filepath(attachment.filepath)
+                if os.path.exists(abs_path):
+                    os.remove(abs_path)
+        db.delete(db_obj)
+        db.commit()
+        return db_obj
 
 
 annotation = CRUDAnnotation(Annotation)

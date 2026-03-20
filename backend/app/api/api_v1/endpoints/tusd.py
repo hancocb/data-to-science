@@ -117,11 +117,46 @@ def _handle_pre_create_authorization(
     # Validate token and load user
     approved_user = _get_approved_user_from_token(db, access_token_value)
 
-    # Verify user has rw access to project
+    x_data_type = payload.Event.HTTPRequest.Header.X_Data_Type
+    data_type = x_data_type[0] if x_data_type and len(x_data_type) == 1 else None
+
+    _reject_upload = {
+        "RejectUpload": True,
+        "HTTPResponse": {
+            "StatusCode": 403,
+            "Body": "Permission denied",
+        },
+    }
+
+    if data_type == "annotation_attachment":
+        # Annotation attachments: viewers who created the annotation are
+        # allowed, as well as managers and owners.
+        project_response = crud.project.get_user_project(
+            db, user_id=approved_user.id, project_id=project_id, permission="r"
+        )
+        if project_response.get("response_code") != status.HTTP_200_OK:
+            return _reject_upload
+
+        # Managers and owners can always upload
+        project_obj = project_response["result"]
+        if project_obj.role in (Role.OWNER, Role.MANAGER):
+            return {"status": "authorized"}
+
+        # Viewers must be the annotation creator
+        x_annotation_id = payload.Event.HTTPRequest.Header.X_Annotation_ID
+        if not x_annotation_id or len(x_annotation_id) != 1:
+            return _reject_upload
+        annotation = crud.annotation.get(db, id=x_annotation_id[0])
+        if not annotation or annotation.created_by_id != approved_user.id:
+            return _reject_upload
+
+        return {"status": "authorized"}
+
+    # Default: require manager or owner role
     project_response = crud.project.get_user_project(
         db, user_id=approved_user.id, project_id=project_id, permission="rw"
     )
-    if not project_response:
+    if project_response.get("response_code") != status.HTTP_200_OK:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied"
         )

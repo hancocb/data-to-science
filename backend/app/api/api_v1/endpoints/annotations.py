@@ -8,9 +8,11 @@ from sqlalchemy.orm import Session
 from app import crud
 from app.api import deps
 from app.models.data_product import DataProduct
+from app.models.enums.visibility import Visibility
 from app.models.user import User
 from app.schemas.annotation import Annotation, AnnotationCreate, AnnotationUpdate
 from app.schemas.project import Project
+from app.schemas.role import Role
 
 router = APIRouter()
 
@@ -22,10 +24,23 @@ def create_annotation(
     annotation_in: AnnotationCreate,
     data_product_id: UUID,
     current_user: User = Depends(deps.get_current_approved_user),
-    data_product: DataProduct = Depends(deps.can_read_write_data_product),
+    data_product: DataProduct = Depends(deps.can_read_data_product),
+    project: Project = Depends(deps.can_read_project),
     db: Session = Depends(deps.get_db),
 ) -> Any:
-    """Create annotation for a data product."""
+    """Create annotation for a data product.
+
+    Viewers can only create personal (OWNER) annotations.
+    PROJECT-level annotations require manager or owner role.
+    """
+    if (
+        annotation_in.visibility == Visibility.PROJECT
+        and project.role not in (Role.OWNER, Role.MANAGER)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only managers and owners can create project-level annotations",
+        )
     try:
         annotation = crud.annotation.create_with_data_product(
             db=db,
@@ -118,9 +133,17 @@ def update_annotation(
 )
 def delete_annotation(
     annotation_id: UUID,
-    data_product: DataProduct = Depends(deps.can_read_write_delete_data_product),
+    current_user: User = Depends(deps.get_current_approved_user),
+    data_product: DataProduct = Depends(deps.can_read_write_data_product),
+    project: Project = Depends(deps.can_read_write_project),
     db: Session = Depends(deps.get_db),
 ) -> Any:
+    """Delete an annotation.
+
+    Personal (OWNER visibility) annotations can only be deleted by their creator.
+    Shared (PROJECT visibility) annotations can be deleted by their creator or
+    any project owner.
+    """
     annotation = crud.annotation.get_with_created_by(db=db, id=annotation_id)
     if annotation is None:
         raise HTTPException(
@@ -132,6 +155,23 @@ def delete_annotation(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Annotation does not belong to specified data product",
         )
+
+    is_creator = annotation.created_by_id == current_user.id
+    is_project_owner = project.role == Role.OWNER
+
+    if annotation.visibility == Visibility.OWNER:
+        if not is_creator:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the creator can delete personal annotations",
+            )
+    else:
+        if not is_creator and not is_project_owner:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the creator or a project owner can delete shared annotations",
+            )
+
     try:
         deleted_annotation = crud.annotation.remove(db=db, id=annotation_id)
     except Exception:
