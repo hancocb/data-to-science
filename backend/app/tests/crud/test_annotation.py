@@ -74,7 +74,8 @@ def test_create_annotation_with_user(db: Session) -> None:
 
 
 def test_get_multi_by_data_product_id(db: Session) -> None:
-    # Create a data product to associate with annotations
+    # Create a user and data product to associate with annotations
+    user = create_user(db)
     sample_data_product = SampleDataProduct(db)
     data_product = sample_data_product.obj
 
@@ -84,11 +85,12 @@ def test_get_multi_by_data_product_id(db: Session) -> None:
         count=2,
         data_product_id=data_product.id,
         base_description="Test annotation",
+        created_by_id=user.id,
     )
 
     # Test get_multi_by_data_product_id
     annotations = crud.annotation.get_multi_by_data_product_id(
-        db=db, data_product_id=data_product.id
+        db=db, data_product_id=data_product.id, user_id=user.id
     )
 
     # Assertions
