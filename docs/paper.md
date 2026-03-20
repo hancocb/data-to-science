@@ -44,7 +44,7 @@ bibliography: paper.bib
 
 # Summary
 
-Recently, geospatial data has begun to be used across a wide range of research fields; however, its large size and unstructured nature present challenges in fostering cohesive collaboration among diverse disciplines. The **Data-to-Science (D2S)** ecosystem is an open-source package that offers an easy-to-use web application and additional client applications, specifically designed for managing comprehensive geospatial data and thereby supporting a broad range of research applications. The D2S web application serves as the primary interface of the D2S ecosystem, originally intended for archiving and visualizing geospatial data, particularly uncrewed aerial system (UAS) data, which often poses management challenges for individual researchers. To assist those who wish to comprehensively analyze both archived data within the D2S and other external geospatial datasets, the current D2S ecosystem also includes three additional components: the [D2S Python module (*d2spy*)](https://py.d2s.org), the [QGIS plugin (*D2S Browser*)](https://plugins.qgis.org/plugins/d2s_browser/), and a [public STAC catalog](https://stac.d2s.org/) accessible via both API and browser interface.
+Recently, geospatial data has begun to be used across a wide range of research fields; however, its large size and unstructured nature present challenges in fostering cohesive collaboration among diverse disciplines. The **Data-to-Science (D2S)** ecosystem is an open-source package that offers an easy-to-use web application and additional client applications, specifically designed for managing comprehensive geospatial data and thereby supporting a broad range of research applications. The D2S web application serves as the primary interface of the D2S ecosystem, originally intended for archiving and visualizing geospatial data, particularly uncrewed aerial system (UAS) data, which often poses management challenges for individual researchers. To assist those who wish to comprehensively analyze both archived data within the D2S ecosystem and other external geospatial datasets, the current D2S ecosystem also includes three additional components: the [D2S Python module (*d2spy*)](https://py.d2s.org), the [QGIS plugin (*D2S Browser*)](https://plugins.qgis.org/plugins/d2s_browser/), and a [public STAC catalog](https://stac.d2s.org/) accessible via both API and browser interface.
 
 
 # Statement of Need
@@ -85,7 +85,7 @@ The D2S frontend web application provides researchers with an intuitive interfac
 |                    | images, from raw UAS data                                 | - Connecting to a photogrammetry pipeline based on open-source   |
 |                    |                                                           |   [OpenDroneMap (ODM)](https://www.opendronemap.org/) via        |
 |                    |                                                           |   ClusterODM                                                     |
-|                    |                                                           | - User configurable settings for the ODM pipeline                |
+|                    |                                                           | - User-configurable settings for the ODM pipeline                |
 |                    |                                                           | \vspace{1em}                                                     |
 +--------------------+-----------------------------------------------------------+------------------------------------------------------------------+
 | **Postprocessing** | Basic analysis of geospatial data products                | - Calculating vegetation indices (NDVI¹, ExG², VARI³) and        |
@@ -116,7 +116,7 @@ This work was supported by the Purdue Plant Science 2.0 Initiative, the Institut
 
 
 # Author Contributions:
-Conceptualization, J.J.; methodology, B.H., Z.C.Q., N.Z., Z.G. and J.J.; investigation, Z.C.Q., N.Z., and Z.G.; software, M.J., B.H., Z.C.Q., and J.J.; validation, M.J., B.H., J.S.D., and J.J.; data curation, M.J., B.H., and J.S.D.; writing – original draft preparation, M.J., B.H., J.S.D.; writing – review and editing, M.J., B.H., and J.J.; visualization, M.J., and B.H.; supervision, J.J.; project administration, M.J. and J.J.; resources, J.S.D., and J.J.; funding acquisition, J.J.; All authors have read and agreed to the published version of the manuscript.
+Conceptualization, J.J.; methodology, B.H., Z.C.Q., N.Z., Z.G. and J.J.; investigation, Z.C.Q., N.Z., and Z.G.; software, M.J., B.H., Z.C.Q., and J.J.; validation, M.J., B.H., J.S.D., and J.J.; data curation, M.J., B.H., and J.S.D.; writing – original draft preparation, M.J., B.H., J.S.D.; writing – review and editing, M.J., B.H., and J.J.; visualization, M.J., and B.H.; supervision, J.J.; project administration, M.J. and J.J.; resources, J.S.D., and J.J.; funding acquisition, J.J.; all authors have read and agreed to the published version of the manuscript.
 
 
 # References
