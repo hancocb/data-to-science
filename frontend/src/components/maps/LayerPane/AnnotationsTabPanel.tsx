@@ -49,7 +49,6 @@ export default function AnnotationsTabPanel() {
     error,
     activate,
     setEditingAnnotation,
-    hoveredAnnotationId,
     setHoveredAnnotationId,
     toggleChecked,
     updateStyle,
@@ -191,7 +190,7 @@ export default function AnnotationsTabPanel() {
                 const style = styles[annotation.id] || defaultAnnotationStyle;
                 const tags = annotation.tag_rows
                   .map((tr) => tr.tag?.name)
-                  .filter(Boolean);
+                  .filter((t): t is string => Boolean(t));
 
                 return (
                   <div
