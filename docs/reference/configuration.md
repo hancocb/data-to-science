@@ -14,6 +14,7 @@ D2S uses environment files to configure its services. This document describes al
 
 | Variable | Description |
 |----------|-------------|
+| `VITE_BREEDBASE_OAUTH_HOSTS` | BreedBase OAuth hosts as JSON (optional). Maps hostnames to their authorize URLs, e.g., `{"wheatcap.triticeaetoolbox.org":{"authorizeUrl":"https://wheatcap.triticeaetoolbox.org/brapi/authorize"}}`. Leave empty to disable BreedBase OAuth. |
 | `VITE_MAPBOX_ACCESS_TOKEN` | Mapbox access token for satellite imagery (optional). |
 | `VITE_MAPTILER_API_KEY` | Maptiler API key for OSM labels (optional). |
 | `VITE_TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key for bot protection on registration (optional). Leave empty to disable. Must be paired with `TURNSTILE_SECRET_KEY` in `backend.env`. |
@@ -28,6 +29,7 @@ You must provide a value for `SECRET_KEY` in your `backend.env` file. Use a cryp
 | `API_DOMAIN` | Domain used for accessing the application (e.g., `http://localhost` or `https://customdomain`). |
 | `CELERY_BROKER_URL` | Address for local redis service. |
 | `CELERY_RESULT_BACKEND` | Address for local redis service. |
+| `BREEDBASE_ALLOWED_HOSTS` | Comma-separated list of allowed BreedBase hostnames for the BrAPI proxy (optional). When empty, any public host with a `/brapi/` path is allowed. Set to restrict which servers the proxy can reach. |
 | `ENABLE_BREEDBASE` | Enable/disable Breedbase connection endpoints (`true`/`false`). |
 | `ENABLE_CAMPAIGNS` | Enable/disable campaign management endpoints (`true`/`false`). |
 | `ENABLE_IFORESTER` | Enable/disable iForester integration endpoints (`true`/`false`). |

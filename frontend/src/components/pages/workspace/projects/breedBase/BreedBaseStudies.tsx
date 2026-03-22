@@ -4,10 +4,12 @@ import Pagination from '../../../../Pagination';
 
 export default function BreedBaseStudies({
   data,
+  existingStudyIds,
   onAddStudyId,
   onPageChange,
 }: {
   data: BreedBaseStudiesAPIResponse;
+  existingStudyIds: string[];
   onAddStudyId: (studyId: string) => void;
   onPageChange: (page: number) => void;
 }) {
@@ -44,18 +46,31 @@ export default function BreedBaseStudies({
                 <tr key={study.studyDbId} className="odd:bg-gray-50">
                   <td className="px-4 py-2">{study.studyDbId}</td>
                   <td className="px-4 py-2">{study.studyName}</td>
-                  <td className="px-4 py-2">{study.studyDescription}</td>
                   <td className="px-4 py-2">
-                    {study.additionalInfo?.programName}
+                    {study.studyDescription || study.additionalInfo?.description}
                   </td>
-                  <td className="px-4 py-2">{study.seasons.join(', ')}</td>
                   <td className="px-4 py-2">
-                    <button
-                      onClick={() => onAddStudyId(study.studyDbId)}
-                      className="bg-accent2/90 text-white font-semibold px-2 py-1 rounded-sm enabled:hover:bg-accent2 disabled:opacity-75 disabled:cursor-not-allowed"
-                    >
-                      Add
-                    </button>
+                    {study.programName || study.additionalInfo?.programName}
+                  </td>
+                  <td className="px-4 py-2">
+                    {study.seasons
+                      .map((s) => (typeof s === 'string' ? s : s.year || s.season || ''))
+                      .filter(Boolean)
+                      .join(', ')}
+                  </td>
+                  <td className="px-4 py-2">
+                    {(() => {
+                      const isAdded = existingStudyIds.includes(study.studyDbId);
+                      return (
+                        <button
+                          onClick={() => onAddStudyId(study.studyDbId)}
+                          disabled={isAdded}
+                          className="bg-accent2/90 text-white font-semibold px-2 py-1 rounded-sm enabled:hover:bg-accent2 disabled:opacity-75 disabled:cursor-not-allowed"
+                        >
+                          {isAdded ? 'Added' : 'Add'}
+                        </button>
+                      );
+                    })()}
                   </td>
                 </tr>
               ))}
