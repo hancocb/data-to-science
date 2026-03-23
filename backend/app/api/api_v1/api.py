@@ -136,6 +136,16 @@ if settings.ENABLE_BREEDBASE:
         prefix="/breedbase-connections/study",
         tags=["breedbase_connections"],
     )
+    api_router.include_router(
+        breedbase_connections.oauth_router,
+        prefix="/breedbase_connections/oauth",
+        tags=["breedbase_connections"],
+    )
+    api_router.include_router(
+        breedbase_connections.proxy_router,
+        prefix="/breedbase/brapi",
+        tags=["breedbase_connections"],
+    )
 
 if settings.ENABLE_CAMPAIGNS:
     api_router.include_router(

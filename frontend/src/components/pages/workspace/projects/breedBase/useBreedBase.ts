@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import axios, { AxiosResponse } from 'axios';
 import { UseFormReturn } from 'react-hook-form';
 
@@ -11,20 +11,27 @@ import {
 
 import api from '../../../../../api';
 
-// Create a separate axios instance for BreedBase API calls without credentials
-const breedBaseApi = axios.create({
-  withCredentials: false,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
 interface UseBreedBaseProps {
   projectId: string;
   methods: UseFormReturn<BreedBaseFormData>;
+  getAuthToken?: (hostname: string) => string | null;
+  onAuthExpired?: (breedbaseUrl: string) => void;
 }
 
-export function useBreedBase({ projectId, methods }: UseBreedBaseProps) {
+function getAccessToken(
+  url: string,
+  getAuthToken?: (hostname: string) => string | null
+): string | undefined {
+  if (!getAuthToken) return undefined;
+  try {
+    const hostname = new URL(url).hostname;
+    return getAuthToken(hostname) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function useBreedBase({ projectId, methods, getAuthToken, onAuthExpired }: UseBreedBaseProps) {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [breedbaseStudies, setBreedbaseStudies] = useState<BreedBaseStudy[]>(
@@ -41,8 +48,9 @@ export function useBreedBase({ projectId, methods }: UseBreedBaseProps) {
   const [loadingStudyDetails, setLoadingStudyDetails] = useState<
     Record<string, boolean>
   >({});
+  const fetchedStudyKeysRef = useRef<Set<string>>(new Set());
 
-  const fetchBreedbaseStudies = async () => {
+  const fetchBreedbaseStudies = useCallback(async () => {
     try {
       const response: AxiosResponse<BreedBaseStudy[]> = await api.get(
         `/projects/${projectId}/breedbase-connections`
@@ -51,14 +59,20 @@ export function useBreedBase({ projectId, methods }: UseBreedBaseProps) {
     } catch (err) {
       handleError(err);
     }
-  };
+  }, [projectId]);
 
-  const handleError = (err: unknown) => {
+  const handleError = (err: unknown, isProxyRequest = false) => {
     if (axios.isAxiosError(err)) {
+      if (isProxyRequest && err.response?.status === 401) {
+        const url = methods.getValues('breedbaseUrl');
+        onAuthExpired?.(url);
+        setError('Session expired. Please log in again.');
+        return;
+      }
       if (err.response) {
         setError(
           `Server error: ${
-            err.response.data?.message || err.response.statusText
+            err.response.data?.detail || err.response.data?.message || err.response.statusText
           }`
         );
       } else if (err.request) {
@@ -73,6 +87,21 @@ export function useBreedBase({ projectId, methods }: UseBreedBaseProps) {
     } else {
       setError('An unknown error occurred');
     }
+  };
+
+  const brapiProxy = async (
+    url: string,
+    method: 'GET' | 'POST' = 'GET',
+    body?: Record<string, unknown>
+  ) => {
+    const access_token = getAccessToken(url, getAuthToken);
+    const response = await api.post('/breedbase/brapi/proxy', {
+      url,
+      method,
+      body: body || null,
+      brapi_token: access_token || null,
+    });
+    return response;
   };
 
   const searchStudies = async (data: BreedBaseFormData) => {
@@ -93,30 +122,31 @@ export function useBreedBase({ projectId, methods }: UseBreedBaseProps) {
         seasonDbIds: data.year ? data.year.split(';').filter(Boolean) : [],
       };
 
-      const searchResponse: AxiosResponse<BreedBaseSearchAPIResponse> =
-        await breedBaseApi.post(
-          `${data.breedbaseUrl}/search/studies`,
-          searchParams
-        );
+      const searchResponse = await brapiProxy(
+        `${data.breedbaseUrl}/search/studies`,
+        'POST',
+        searchParams
+      );
 
-      if (!searchResponse.data?.result?.searchResultsDbId) {
+      const searchData = searchResponse.data as BreedBaseSearchAPIResponse;
+      if (!searchData?.result?.searchResultsDbId) {
         throw new Error('Invalid search response: missing searchResultsDbId');
       }
 
-      const searchResultsDbId = searchResponse.data.result.searchResultsDbId;
+      const searchResultsDbId = searchData.result.searchResultsDbId;
       setSearchResultsDbId(searchResultsDbId);
 
-      const studiesResponse: AxiosResponse<BreedBaseStudiesAPIResponse> =
-        await breedBaseApi.get(
-          `${data.breedbaseUrl}/search/studies/${searchResultsDbId}`
-        );
+      const studiesResponse = await brapiProxy(
+        `${data.breedbaseUrl}/search/studies/${searchResultsDbId}`
+      );
 
-      if (!studiesResponse.data?.result?.data) {
+      const studiesData = studiesResponse.data as BreedBaseStudiesAPIResponse;
+      if (!studiesData?.result?.data) {
         throw new Error('Invalid studies response: missing data');
       }
-      setStudiesApiResponse(studiesResponse.data);
+      setStudiesApiResponse(studiesData);
     } catch (err) {
-      handleError(err);
+      handleError(err, true);
     } finally {
       setIsLoading(false);
     }
@@ -145,54 +175,67 @@ export function useBreedBase({ projectId, methods }: UseBreedBaseProps) {
 
     try {
       const formData = methods.getValues();
-      const url = `${formData.breedbaseUrl}/search/studies/${searchResultsDbId}?page=${page}`;
-      const response: AxiosResponse<BreedBaseStudiesAPIResponse> =
-        await breedBaseApi.get(url);
-      setStudiesApiResponse(response.data);
+      const response = await brapiProxy(
+        `${formData.breedbaseUrl}/search/studies/${searchResultsDbId}?page=${page}`
+      );
+      setStudiesApiResponse(response.data as BreedBaseStudiesAPIResponse);
     } catch (err) {
-      handleError(err);
+      handleError(err, true);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const fetchStudyDetails = async (baseUrl: string, studyId: string) => {
-    const studyKey = `${baseUrl}-${studyId}`;
+  const fetchStudyDetails = useCallback(
+    async (baseUrl: string, studyId: string) => {
+      const studyKey = `${baseUrl}-${studyId}`;
 
-    // Skip if already loaded or loading
-    if (studyDetails[studyKey] || loadingStudyDetails[studyKey]) {
-      return;
-    }
-
-    setLoadingStudyDetails((prev) => ({ ...prev, [studyKey]: true }));
-
-    try {
-      const response = await breedBaseApi.get(`${baseUrl}/studies/${studyId}`);
-      if (response.status === 200 && response.data?.result) {
-        const studyName = response.data.result.studyName || 'Unknown Study';
-        const seasons = response.data.result.seasons
-          ? response.data.result.seasons.join(', ')
-          : 'N/A';
-        setStudyDetails((prev) => ({
-          ...prev,
-          [studyKey]: { studyName, seasons },
-        }));
-      } else {
-        setStudyDetails((prev) => ({
-          ...prev,
-          [studyKey]: { studyName: 'Error loading details', seasons: 'N/A' },
-        }));
+      // Skip if already fetched or in-flight
+      if (fetchedStudyKeysRef.current.has(studyKey)) {
+        return;
       }
-    } catch (err) {
-      console.error('Error fetching study details:', err);
-      setStudyDetails((prev) => ({
-        ...prev,
-        [studyKey]: { studyName: 'Error loading details', seasons: 'N/A' },
-      }));
-    } finally {
-      setLoadingStudyDetails((prev) => ({ ...prev, [studyKey]: false }));
-    }
-  };
+      fetchedStudyKeysRef.current.add(studyKey);
+
+      setLoadingStudyDetails((prev) => ({ ...prev, [studyKey]: true }));
+
+      try {
+        const response = await brapiProxy(
+          `${baseUrl}/studies/${studyId}`
+        );
+        if (response.status === 200 && response.data?.result) {
+          const studyName =
+            response.data.result.studyName || 'Unknown Study';
+          const seasons = response.data.result.seasons
+            ? response.data.result.seasons.join(', ')
+            : 'N/A';
+          setStudyDetails((prev) => ({
+            ...prev,
+            [studyKey]: { studyName, seasons },
+          }));
+        } else {
+          setStudyDetails((prev) => ({
+            ...prev,
+            [studyKey]: {
+              studyName: 'Error loading details',
+              seasons: 'N/A',
+            },
+          }));
+        }
+      } catch (err) {
+        console.error('Error fetching study details:', err);
+        setStudyDetails((prev) => ({
+          ...prev,
+          [studyKey]: {
+            studyName: 'Error loading details',
+            seasons: 'N/A',
+          },
+        }));
+      } finally {
+        setLoadingStudyDetails((prev) => ({ ...prev, [studyKey]: false }));
+      }
+    },
+    [getAuthToken]
+  );
 
   const addStudy = async (studyId: string) => {
     const breedBaseBaseUrl = methods.getValues('breedbaseUrl');

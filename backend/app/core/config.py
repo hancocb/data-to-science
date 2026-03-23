@@ -133,6 +133,7 @@ class Settings(BaseSettings):
 
     # Feature flags for optional modules
     ENABLE_BREEDBASE: bool = False
+    BREEDBASE_ALLOWED_HOSTS: str = ""
     ENABLE_CAMPAIGNS: bool = False
     ENABLE_IFORESTER: bool = False
     ENABLE_STAC: bool = False

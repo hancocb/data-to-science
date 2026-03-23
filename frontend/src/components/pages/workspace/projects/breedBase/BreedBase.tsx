@@ -7,6 +7,7 @@ import BreedBaseStudies from './BreedBaseStudies';
 import BreedBaseStudiesTable from './BreedBaseStudiesTable';
 import { TextInput } from '../../../../RHFInputs';
 import { useBreedBase } from './useBreedBase';
+import { useBreedBaseOAuth } from './useBreedBaseOAuth';
 import { BreedBaseFormData } from './BreedBase.types';
 
 import defaultValues from './defaultValues';
@@ -19,6 +20,22 @@ export default function BreedBase() {
     defaultValues,
     resolver: yupResolver(validationSchema),
   });
+
+  const watchedUrl = methods.watch('breedbaseUrl');
+
+  const {
+    authStatus,
+    popupBlocked,
+    requiresOAuth,
+    startOAuth,
+    getToken,
+    getAuthorizeUrl,
+    checkAuth,
+    expireAuth,
+  } = useBreedBaseOAuth();
+
+  const needsOAuth = watchedUrl ? requiresOAuth(watchedUrl) : false;
+  const oAuthReady = !needsOAuth || authStatus === 'authenticated';
 
   const {
     error,
@@ -33,7 +50,7 @@ export default function BreedBase() {
     fetchPage,
     addStudy,
     fetchStudyDetails,
-  } = useBreedBase({ projectId: projectId!, methods });
+  } = useBreedBase({ projectId: projectId!, methods, getAuthToken: getToken, onAuthExpired: expireAuth });
 
   useEffect(() => {
     fetchBreedbaseStudies();
@@ -67,6 +84,13 @@ export default function BreedBase() {
       }
     }
   }, [breedbaseStudies, methods]);
+
+  // Check auth status when URL changes
+  useEffect(() => {
+    if (watchedUrl && requiresOAuth(watchedUrl)) {
+      checkAuth(watchedUrl);
+    }
+  }, [watchedUrl, checkAuth, requiresOAuth]);
 
   const { handleSubmit } = methods;
 
@@ -106,6 +130,51 @@ export default function BreedBase() {
               label="BreedBase URL"
               placeholder="https://server/brapi/version"
             />
+            {needsOAuth && (
+              <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded">
+                {authStatus === 'authenticated' ? (
+                  <span className="text-green-700 text-sm font-medium">
+                    Authenticated with{' '}
+                    {(() => {
+                      try {
+                        return new URL(watchedUrl).hostname;
+                      } catch {
+                        return 'server';
+                      }
+                    })()}
+                  </span>
+                ) : (
+                  <>
+                    <span className="text-sm text-gray-700">
+                      {authStatus === 'expired'
+                        ? 'Session expired. Please log in again.'
+                        : 'Authentication required for this server.'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => startOAuth(watchedUrl)}
+                      className="bg-accent2/90 text-white font-semibold px-3 py-1 rounded-sm hover:bg-accent2"
+                    >
+                      Log in
+                    </button>
+                  </>
+                )}
+                {popupBlocked && (
+                  <p className="text-sm text-red-600">
+                    Popup was blocked. Please allow popups or{' '}
+                    <a
+                      href={getAuthorizeUrl(watchedUrl)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline"
+                    >
+                      click here to log in
+                    </a>
+                    .
+                  </p>
+                )}
+              </div>
+            )}
             <fieldset>
               <legend>Search Parameters (optional)</legend>
               <p className="text-sm text-gray-500">
@@ -139,7 +208,7 @@ export default function BreedBase() {
               <button
                 className="w-32 bg-accent2/90 text-white font-semibold py-1 rounded-sm enabled:hover:bg-accent2 disabled:opacity-75 disabled:cursor-not-allowed"
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || !oAuthReady}
               >
                 {isLoading ? 'Searching...' : 'Search Studies'}
               </button>
@@ -150,6 +219,7 @@ export default function BreedBase() {
       {studiesApiResponse && (
         <BreedBaseStudies
           data={studiesApiResponse}
+          existingStudyIds={breedbaseStudies.map((s) => s.study_id)}
           onAddStudyId={addStudy}
           onPageChange={fetchPage}
         />

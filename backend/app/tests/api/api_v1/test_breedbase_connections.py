@@ -1,3 +1,6 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import httpx
 from fastapi import status
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -273,3 +276,317 @@ def test_remove_breedbase_connection(
 
     # Verify that the breedbase connection was removed
     assert breedbase_connection_from_db is None
+
+
+def _mock_httpx_response(status_code=200, json_data=None):
+    """Create a mock httpx response."""
+    mock_response = MagicMock()
+    mock_response.status_code = status_code
+    mock_response.json.return_value = json_data or {}
+    return mock_response
+
+
+@pytest_requires_breedbase
+@patch("app.api.api_v1.endpoints.breedbase_connections.httpx.AsyncClient")
+@patch(
+    "app.api.api_v1.endpoints.breedbase_connections.socket.getaddrinfo",
+    return_value=[(2, 1, 6, "", ("93.184.216.34", 0))],
+)
+def test_brapi_proxy_get(
+    mock_getaddrinfo,
+    mock_async_client_cls,
+    client: TestClient,
+    db: Session,
+    normal_user_access_token: str,
+) -> None:
+    mock_response = _mock_httpx_response(
+        json_data={"result": {"data": [{"studyDbId": "123"}]}}
+    )
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_response)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_async_client_cls.return_value = mock_client
+
+    payload = {
+        "url": "https://example.com/brapi/v2/studies",
+        "method": "GET",
+    }
+
+    response = client.post(
+        f"{settings.API_V1_STR}/breedbase/brapi/proxy",
+        json=payload,
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {"result": {"data": [{"studyDbId": "123"}]}}
+    mock_client.get.assert_called_once()
+
+
+@pytest_requires_breedbase
+@patch("app.api.api_v1.endpoints.breedbase_connections.httpx.AsyncClient")
+@patch(
+    "app.api.api_v1.endpoints.breedbase_connections.socket.getaddrinfo",
+    return_value=[(2, 1, 6, "", ("93.184.216.34", 0))],
+)
+def test_brapi_proxy_post_with_token(
+    mock_getaddrinfo,
+    mock_async_client_cls,
+    client: TestClient,
+    db: Session,
+    normal_user_access_token: str,
+) -> None:
+    mock_response = _mock_httpx_response(
+        status_code=202,
+        json_data={"result": {"searchResultsDbId": "abc123"}},
+    )
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_async_client_cls.return_value = mock_client
+
+    payload = {
+        "url": "https://example.com/brapi/v2/search/studies",
+        "method": "POST",
+        "body": {"studyDbIds": ["123"]},
+        "brapi_token": "test-token-abc",
+    }
+
+    response = client.post(
+        f"{settings.API_V1_STR}/breedbase/brapi/proxy",
+        json=payload,
+    )
+
+    assert response.status_code == status.HTTP_202_ACCEPTED
+    assert response.json() == {"result": {"searchResultsDbId": "abc123"}}
+
+    # Verify the Authorization header was passed
+    call_kwargs = mock_client.post.call_args
+    assert call_kwargs.kwargs["headers"]["Authorization"] == "Bearer test-token-abc"
+
+
+@pytest_requires_breedbase
+def test_brapi_proxy_unauthorized(
+    client: TestClient, db: Session
+) -> None:
+    # Remove auth token to simulate unauthenticated request
+    client.headers.pop("Authorization", None)
+    payload = {
+        "url": "https://example.com/brapi/v2/studies",
+        "method": "GET",
+    }
+
+    response = client.post(
+        f"{settings.API_V1_STR}/breedbase/brapi/proxy",
+        json=payload,
+    )
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@pytest_requires_breedbase
+def test_brapi_proxy_rejects_non_brapi_url(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    payload = {
+        "url": "https://example.com/api/v1/users",
+        "method": "GET",
+    }
+
+    response = client.post(
+        f"{settings.API_V1_STR}/breedbase/brapi/proxy",
+        json=payload,
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "brapi" in response.json()["detail"].lower()
+
+
+@pytest_requires_breedbase
+def test_brapi_proxy_rejects_private_ip(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    payload = {
+        "url": "http://127.0.0.1/brapi/v2/studies",
+        "method": "GET",
+    }
+
+    response = client.post(
+        f"{settings.API_V1_STR}/breedbase/brapi/proxy",
+        json=payload,
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "private" in response.json()["detail"].lower()
+
+
+@pytest_requires_breedbase
+@patch(
+    "app.api.api_v1.endpoints.breedbase_connections.settings.BREEDBASE_ALLOWED_HOSTS",
+    "allowed-host.example.com",
+)
+def test_brapi_proxy_rejects_unlisted_host(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    payload = {
+        "url": "https://not-allowed.example.com/brapi/v2/studies",
+        "method": "GET",
+    }
+
+    response = client.post(
+        f"{settings.API_V1_STR}/breedbase/brapi/proxy",
+        json=payload,
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "allowed" in response.json()["detail"].lower()
+
+
+@pytest_requires_breedbase
+def test_brapi_proxy_rejects_invalid_method(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    payload = {
+        "url": "https://example.com/brapi/v2/studies",
+        "method": "DELETE",
+    }
+
+    response = client.post(
+        f"{settings.API_V1_STR}/breedbase/brapi/proxy",
+        json=payload,
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest_requires_breedbase
+@patch(
+    "app.api.api_v1.endpoints.breedbase_connections.socket.getaddrinfo",
+    return_value=[(2, 1, 6, "", ("93.184.216.34", 0))],
+)
+@patch("app.api.api_v1.endpoints.breedbase_connections.httpx.AsyncClient")
+def test_brapi_proxy_connect_timeout(
+    mock_async_client_cls,
+    mock_getaddrinfo,
+    client: TestClient,
+    db: Session,
+    normal_user_access_token: str,
+) -> None:
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(side_effect=httpx.ConnectTimeout("Connection timed out"))
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_async_client_cls.return_value = mock_client
+
+    payload = {
+        "url": "https://example.com/brapi/v2/studies",
+        "method": "GET",
+    }
+
+    response = client.post(
+        f"{settings.API_V1_STR}/breedbase/brapi/proxy",
+        json=payload,
+    )
+
+    assert response.status_code == status.HTTP_504_GATEWAY_TIMEOUT
+    assert "timed out" in response.json()["detail"].lower()
+
+
+@pytest_requires_breedbase
+@patch(
+    "app.api.api_v1.endpoints.breedbase_connections.socket.getaddrinfo",
+    return_value=[(2, 1, 6, "", ("93.184.216.34", 0))],
+)
+@patch("app.api.api_v1.endpoints.breedbase_connections.httpx.AsyncClient")
+def test_brapi_proxy_read_timeout(
+    mock_async_client_cls,
+    mock_getaddrinfo,
+    client: TestClient,
+    db: Session,
+    normal_user_access_token: str,
+) -> None:
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(side_effect=httpx.ReadTimeout("Read timed out"))
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_async_client_cls.return_value = mock_client
+
+    payload = {
+        "url": "https://example.com/brapi/v2/studies",
+        "method": "GET",
+    }
+
+    response = client.post(
+        f"{settings.API_V1_STR}/breedbase/brapi/proxy",
+        json=payload,
+    )
+
+    assert response.status_code == status.HTTP_504_GATEWAY_TIMEOUT
+    assert "too long to respond" in response.json()["detail"].lower()
+
+
+@pytest_requires_breedbase
+@patch(
+    "app.api.api_v1.endpoints.breedbase_connections.socket.getaddrinfo",
+    return_value=[(2, 1, 6, "", ("93.184.216.34", 0))],
+)
+@patch("app.api.api_v1.endpoints.breedbase_connections.httpx.AsyncClient")
+def test_brapi_proxy_connect_error(
+    mock_async_client_cls,
+    mock_getaddrinfo,
+    client: TestClient,
+    db: Session,
+    normal_user_access_token: str,
+) -> None:
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_async_client_cls.return_value = mock_client
+
+    payload = {
+        "url": "https://example.com/brapi/v2/studies",
+        "method": "GET",
+    }
+
+    response = client.post(
+        f"{settings.API_V1_STR}/breedbase/brapi/proxy",
+        json=payload,
+    )
+
+    assert response.status_code == status.HTTP_502_BAD_GATEWAY
+    assert "could not connect" in response.json()["detail"].lower()
+
+
+@pytest_requires_breedbase
+@patch(
+    "app.api.api_v1.endpoints.breedbase_connections.socket.getaddrinfo",
+    return_value=[(2, 1, 6, "", ("93.184.216.34", 0))],
+)
+@patch("app.api.api_v1.endpoints.breedbase_connections.httpx.AsyncClient")
+def test_brapi_proxy_generic_http_error(
+    mock_async_client_cls,
+    mock_getaddrinfo,
+    client: TestClient,
+    db: Session,
+    normal_user_access_token: str,
+) -> None:
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(side_effect=httpx.HTTPError("Something went wrong"))
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_async_client_cls.return_value = mock_client
+
+    payload = {
+        "url": "https://example.com/brapi/v2/studies",
+        "method": "GET",
+    }
+
+    response = client.post(
+        f"{settings.API_V1_STR}/breedbase/brapi/proxy",
+        json=payload,
+    )
+
+    assert response.status_code == status.HTTP_502_BAD_GATEWAY
+    assert "error communicating" in response.json()["detail"].lower()
