@@ -1,5 +1,10 @@
 # Data to Science
 
+[![DOI](https://joss.theoj.org/papers/10.21105/joss.09497/status.svg)](https://doi.org/10.21105/joss.09497)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3](https://img.shields.io/badge/python-3-blue.svg)](https://www.python.org/)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
+
 <p align="center">
   <img src="docs/assets/d2s-screenshot1.png" width="45%" />
   <img src="docs/assets/d2s-screenshot2.png" width="45%" />
@@ -19,6 +24,7 @@
   - [Local Development](#-local-development)
 - [Example Deployment](#example-deployment)
 - [Companion Tools](#-companion-tools)
+- [Citation](#-citation)
 - [Contributing](#-contributing)
 - [Documentation](#-documentation)
 
@@ -172,6 +178,26 @@ pip install d2spy
 Browse and manage your D2S project data directly from QGIS — access existing datasets or create projects, flights, and upload data products without leaving the desktop.
 
 [QGIS Plugin Page](https://plugins.qgis.org/plugins/d2s_browser/)
+
+# 📄 Citation
+
+If you use D2S in your research, please cite the following paper:
+
+> Jung et al., (2026). Data-to-Science (D2S): An open-source ecosystem for collaborative geospatial data science research. *Journal of Open Source Software*, 11(119), 9497. https://doi.org/10.21105/joss.09497
+
+```bibtex
+@article{Jung2026,
+  title = {Data-to-Science (D2S): An open-source ecosystem for collaborative geospatial data science research},
+  author = {Jung, Jinha and others},
+  journal = {Journal of Open Source Software},
+  year = {2026},
+  volume = {11},
+  number = {119},
+  pages = {9497},
+  doi = {10.21105/joss.09497},
+  url = {https://doi.org/10.21105/joss.09497}
+}
+```
 
 # 🤝 Contributing
 
