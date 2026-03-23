@@ -50,6 +50,7 @@ export default function BreedBase() {
     fetchPage,
     addStudy,
     fetchStudyDetails,
+    refreshStudyDetails,
   } = useBreedBase({ projectId: projectId!, methods, getAuthToken: getToken, onAuthExpired: expireAuth });
 
   useEffect(() => {
@@ -84,6 +85,13 @@ export default function BreedBase() {
       }
     }
   }, [breedbaseStudies, methods]);
+
+  // Refresh study details after re-authentication
+  useEffect(() => {
+    if (authStatus === 'authenticated' && breedbaseStudies.length > 0) {
+      refreshStudyDetails();
+    }
+  }, [authStatus, breedbaseStudies.length, refreshStudyDetails]);
 
   // Check auth status when URL changes
   useEffect(() => {
