@@ -237,6 +237,14 @@ export function useBreedBase({ projectId, methods, getAuthToken, onAuthExpired }
     [getAuthToken]
   );
 
+  const refreshStudyDetails = useCallback(() => {
+    fetchedStudyKeysRef.current.clear();
+    setStudyDetails({});
+    breedbaseStudies.forEach((study) => {
+      fetchStudyDetails(study.base_url, study.study_id);
+    });
+  }, [breedbaseStudies, fetchStudyDetails]);
+
   const addStudy = async (studyId: string) => {
     const breedBaseBaseUrl = methods.getValues('breedbaseUrl');
     if (!breedBaseBaseUrl) {
@@ -276,5 +284,6 @@ export function useBreedBase({ projectId, methods, getAuthToken, onAuthExpired }
     fetchPage,
     addStudy,
     fetchStudyDetails,
+    refreshStudyDetails,
   };
 }
