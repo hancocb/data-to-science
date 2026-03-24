@@ -15,6 +15,7 @@ from app.core.exceptions import PermissionDenied, ResourceNotFound
 from app.schemas import TUSDHook, UploadUpdate
 from app.schemas.role import Role
 from app.utils.tusd.post_processing import (
+    process_annotation_attachment_uploaded_to_tusd,
     process_data_product_uploaded_to_tusd,
     process_indoor_data_uploaded_to_tusd,
     process_raw_data_uploaded_to_tusd,
@@ -116,11 +117,46 @@ def _handle_pre_create_authorization(
     # Validate token and load user
     approved_user = _get_approved_user_from_token(db, access_token_value)
 
-    # Verify user has rw access to project
+    x_data_type = payload.Event.HTTPRequest.Header.X_Data_Type
+    data_type = x_data_type[0] if x_data_type and len(x_data_type) == 1 else None
+
+    _reject_upload = {
+        "RejectUpload": True,
+        "HTTPResponse": {
+            "StatusCode": 403,
+            "Body": "Permission denied",
+        },
+    }
+
+    if data_type == "annotation_attachment":
+        # Annotation attachments: viewers who created the annotation are
+        # allowed, as well as managers and owners.
+        project_response = crud.project.get_user_project(
+            db, user_id=approved_user.id, project_id=project_id, permission="r"
+        )
+        if project_response.get("response_code") != status.HTTP_200_OK:
+            return _reject_upload
+
+        # Managers and owners can always upload
+        project_obj = project_response["result"]
+        if project_obj.role in (Role.OWNER, Role.MANAGER):
+            return {"status": "authorized"}
+
+        # Viewers must be the annotation creator
+        x_annotation_id = payload.Event.HTTPRequest.Header.X_Annotation_ID
+        if not x_annotation_id or len(x_annotation_id) != 1:
+            return _reject_upload
+        annotation = crud.annotation.get(db, id=x_annotation_id[0])
+        if not annotation or annotation.created_by_id != approved_user.id:
+            return _reject_upload
+
+        return {"status": "authorized"}
+
+    # Default: require manager or owner role
     project_response = crud.project.get_user_project(
         db, user_id=approved_user.id, project_id=project_id, permission="rw"
     )
-    if not project_response:
+    if project_response.get("response_code") != status.HTTP_200_OK:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Permission denied"
         )
@@ -374,6 +410,45 @@ def _handle_uas_project_hooks(
         return _handle_post_create_uas(payload, db, upload_id, existing_upload)
 
     if payload.Type == "post-finish":
+        # Annotation attachments are processed synchronously (no Celery task)
+        # and don't need upload record tracking, so handle them first.
+        if data_type == "annotation_attachment":
+            storage = payload.Event.Upload.Storage
+            if not storage or not os.path.exists(storage.Path):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Uploaded file not found",
+                )
+            x_annotation_id = payload.Event.HTTPRequest.Header.X_Annotation_ID
+            x_data_product_id = (
+                payload.Event.HTTPRequest.Header.X_Data_Product_ID
+            )
+            if not x_annotation_id or len(x_annotation_id) != 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Must include 'X-Annotation-Id' header",
+                )
+            if not x_data_product_id or len(x_data_product_id) != 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Must include 'X-Data-Product-Id' header",
+                )
+            process_annotation_attachment_uploaded_to_tusd(
+                db,
+                storage_path=Path(storage.Path),
+                original_filename=Path(
+                    payload.Event.Upload.MetaData.filename
+                ),
+                project_id=project.id,
+                flight_id=flight.id,
+                data_product_id=x_data_product_id[0],
+                annotation_id=x_annotation_id[0],
+            )
+            # Update upload record if it exists (best-effort bookkeeping)
+            if existing_upload:
+                _update_upload_record_to_finished(db, existing_upload)
+            return {"status": "ok"}
+
         _update_upload_record_to_finished(db, existing_upload)
         # After _update_upload_record_to_finished, existing_upload is guaranteed not None
         assert existing_upload is not None
@@ -382,8 +457,8 @@ def _handle_uas_project_hooks(
         if is_uploading == True or not existing_upload:
             storage = payload.Event.Upload.Storage
             if storage and os.path.exists(storage.Path):
-                # post-processing for geotiffs and point clouds
                 if data_type != "raw":
+                    # post-processing for geotiffs and point clouds
                     process_data_product_uploaded_to_tusd(
                         db,
                         user_id=existing_upload.user_id,

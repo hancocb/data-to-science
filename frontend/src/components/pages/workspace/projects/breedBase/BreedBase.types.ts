@@ -17,11 +17,13 @@ interface BreedBaseStudiesAPIResponse {
     data: {
       additionalInfo: {
         programName?: string;
+        description?: string;
       };
-      seasons: string[];
+      programName?: string;
+      seasons: (string | { seasonDbId?: string; year?: string; season?: string })[];
       studyDbId: string;
       studyName: string;
-      studyDescription: string;
+      studyDescription?: string;
     }[];
   };
 }
@@ -40,9 +42,20 @@ interface BreedBaseStudy {
   study_id: string;
 }
 
+interface BreedBaseOAuthMessage {
+  type: 'breedbase-oauth-callback';
+  status: string;
+  accessToken?: string;
+  error?: string;
+}
+
+type BreedBaseOAuthStatus = 'none' | 'authenticated' | 'validating' | 'expired';
+
 export type {
   BreedBaseSearchAPIResponse,
   BreedBaseStudiesAPIResponse,
   BreedBaseFormData,
   BreedBaseStudy,
+  BreedBaseOAuthMessage,
+  BreedBaseOAuthStatus,
 };

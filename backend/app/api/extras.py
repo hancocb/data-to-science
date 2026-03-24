@@ -395,6 +395,42 @@ def generate_potree_viewer_html(
     <script src="/potree/libs/plasio/js/laslaz.js"></script>
     <script src="/potree/libs/Cesium/Cesium.js"></script>
 
+    <script>
+      // Reformat Potree measurement labels: metric first, imperial in parentheses
+      (function() {{
+        if (typeof Potree === 'undefined' || !Potree.Measure) return;
+        var srcIsFt = PC_Z_UNIT_FACTOR < 1;
+        function toFt(v) {{ return srcIsFt ? v : v * 3.28084; }}
+        function toM(v)  {{ return srcIsFt ? v * 0.3048 : v; }}
+        function fmtDist(raw) {{
+          var ft = toFt(raw), m = toM(raw);
+          return m.toFixed(2) + ' m (' + ft.toFixed(2) + ' ft)';
+        }}
+        function fmtArea(raw) {{
+          var sqft, sqm;
+          if (srcIsFt) {{ sqft = raw; sqm = raw * 0.092903; }}
+          else         {{ sqm = raw;  sqft = raw * 10.7639; }}
+          if (sqm >= 10000)
+            return (sqm / 10000).toFixed(2) + ' ha (' + (sqft / 43560).toFixed(2) + ' ac)';
+          return sqm.toFixed(1) + ' m\u00B2 (' + sqft.toFixed(1) + ' ft\u00B2)';
+        }}
+        function patchLabel(label, fmt) {{
+          if (!label || !label.text) return;
+          var v = parseFloat(label.text);
+          if (!isNaN(v) && v > 0) label.setText(fmt(v));
+        }}
+        var _upd = Potree.Measure.prototype.update;
+        Potree.Measure.prototype.update = function() {{
+          _upd.call(this);
+          if (this.edgeLabels)
+            this.edgeLabels.forEach(function(l) {{ patchLabel(l, fmtDist); }});
+          patchLabel(this.lengthLabel, fmtDist);
+          patchLabel(this.circleRadiusLabel, fmtDist);
+          patchLabel(this.areaLabel, fmtArea);
+        }};
+      }})();
+    </script>
+
     <div class="potree_container">
       <div id="potree_render_area">
         <div id="potree_toolbar"></div>
@@ -598,8 +634,32 @@ def generate_potree_viewer_html(
         viewer.update(viewer.clock.getDelta(), timestamp);
         viewer.render();
 
+        // HQ splatting is incompatible with orthographic projection —
+        // force Standard quality while in ortho and restore on return.
+        if (!PC_IS_MOBILE) {{
+          const isOrtho = viewer.scene.getActiveCamera().isOrthographicCamera;
+          if (isOrtho && viewer.useHQ) {{
+            viewer._hqBeforeOrtho = true;
+            viewer.useHQ = false;
+            $('#splat_quality_options').find('input[value=standard]').trigger('click');
+          }} else if (!isOrtho && viewer._hqBeforeOrtho) {{
+            viewer._hqBeforeOrtho = false;
+            viewer.useHQ = true;
+            $('#splat_quality_options').find('input[value=hq]').trigger('click');
+          }}
+        }}
+
         if (typeof window.toMap !== 'undefined' && cesiumViewer) {{
           const camera = viewer.scene.getActiveCamera();
+
+          // Skip Cesium sync when Potree is in orthographic mode —
+          // Cesium's tile imagery requires a perspective frustum.
+          const cesiumEl = document.getElementById('cesiumContainer');
+          if (camera.isOrthographicCamera) {{
+            cesiumEl.style.display = 'none';
+            return;
+          }}
+          cesiumEl.style.display = 'block';
 
           const pPos    = new THREE.Vector3(0, 0, 0).applyMatrix4(camera.matrixWorld);
           const pRight  = new THREE.Vector3(600, 0, 0).applyMatrix4(camera.matrixWorld);
@@ -821,7 +881,7 @@ def generate_potree_viewer_html(
       
         {{// POINT BUDGET
           const minBudget = PC_IS_MOBILE ? 50_000 : 100_000;
-          const maxBudget = PC_IS_MOBILE ? 1_000_000 : 2_000_000;
+          const maxBudget = PC_IS_MOBILE ? 1_000_000 : 10_000_000;
           const stepBudget = PC_IS_MOBILE ? 50_000 : 100_000;
           
           elToolbar.find('#sldPointBudget').slider({{
@@ -833,8 +893,9 @@ def generate_potree_viewer_html(
           }});
       
           const onBudgetChange = () => {{
-            let budget = (viewer.getPointBudget() / (1000_000)).toFixed(1) + "M";
-            elToolbar.find('span[name=lblPointBudget]').html(budget);
+            let budget = viewer.getPointBudget();
+            elToolbar.find('span[name=lblPointBudget]').html((budget / 1000_000).toFixed(1) + "M");
+            elToolbar.find('#sldPointBudget').slider('value', budget);
           }};
       
           onBudgetChange();

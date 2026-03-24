@@ -1,4 +1,11 @@
 from .admin import SiteStatistics, UserProjectStatistics
+from .annotation import Annotation, AnnotationCreate, AnnotationUpdate
+from .annotation_attachment import (
+    AnnotationAttachment,
+    AnnotationAttachmentCreate,
+    AnnotationAttachmentUpdate,
+)
+from .annotation_tag import AnnotationTag, AnnotationTagCreate, AnnotationTagUpdate
 from .api_key import APIKey, APIKeyCreate, APIKeyUpdate
 from .breedbase_connection import (
     BreedbaseConnection,
@@ -41,7 +48,7 @@ from .project import Project, ProjectCreate, ProjectUpdate
 from .project_like import ProjectLike, ProjectLikeCreate, ProjectLikeUpdate
 from .project_member import ProjectMember, ProjectMemberCreate, ProjectMemberUpdate
 from .project_module import ProjectModule, ProjectModuleCreate, ProjectModuleUpdate
-from .raw_data import RawData, RawDataCreate, RawDataUpdate, RawDataMetadata
+from .raw_data import RawData, RawDataCreate, RawDataUpdate, RawDataMetadata, ProgressUpdate
 from .refresh_token import RefreshToken, RefreshTokenCreate, RefreshTokenUpdate
 from .shortened_url import (
     ShortenedUrl,
@@ -58,6 +65,7 @@ from .stac import (
     STACResponse,
     STACMetadataRequest,
 )
+from .tag import Tag, TagCreate, TagUpdate
 from .team import Team, TeamCreate, TeamUpdate
 from .team_extension import TeamExtension, TeamExtensionCreate, TeamExtensionUpdate
 from .team_member import TeamMember, TeamMemberCreate, TeamMemberUpdate
@@ -73,3 +81,8 @@ from .vector_layer import (
     VectorLayerUpdate,
     VectorLayerFeatureCollection,
 )
+
+# Rebuild models with forward references after all schemas are imported
+# This resolves forward references like "User", "DataProduct", "Tag", etc.
+Annotation.model_rebuild()
+AnnotationTag.model_rebuild()

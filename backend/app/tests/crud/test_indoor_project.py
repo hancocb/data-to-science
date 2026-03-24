@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app import crud
 from app.core.exceptions import PermissionDenied, ResourceNotFound
-from app.models.project_type import ProjectType
+from app.models.enums.project_type import ProjectType
 from app.schemas.indoor_project import IndoorProjectCreate, IndoorProjectUpdate
 from app.schemas.role import Role
 from app.tests.utils.indoor_project import create_indoor_project

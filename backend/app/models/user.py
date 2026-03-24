@@ -12,6 +12,7 @@ from app.models.utils.utcnow import utcnow
 
 
 if TYPE_CHECKING:
+    from .annotation import Annotation
     from .api_key import APIKey
     from .campaign import Campaign
     from .flight import Flight
@@ -60,6 +61,9 @@ class User(Base):
         DateTime(timezone=True), nullable=True, index=True
     )
 
+    annotations: Mapped[List["Annotation"]] = relationship(
+        back_populates="created_by", passive_deletes=True
+    )
     api_key: Mapped["APIKey"] = relationship(
         back_populates="owner", cascade="all, delete"
     )

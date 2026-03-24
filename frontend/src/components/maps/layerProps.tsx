@@ -142,3 +142,104 @@ export const getProjectVectorLayer = (
       throw new Error(`Unexpected geometry type: ${geomType}`);
   }
 };
+
+// Annotation GeoJSON layers
+export const getAnnotationLayer = (
+  annotationId: string,
+  geomType: string,
+  style: { color: string; fill: string; opacity: number },
+  highlighted = false
+): LayerProps | LayerProps[] => {
+  const sourceId = `annotation-${annotationId}`;
+  const type = geomType.toLowerCase();
+  const opacity = highlighted ? 1 : style.opacity / 100;
+
+  switch (type) {
+    case 'point':
+      return {
+        id: sourceId,
+        type: 'circle',
+        source: sourceId,
+        paint: {
+          'circle-radius': highlighted ? 10 : 6,
+          'circle-color': style.color,
+          'circle-opacity': opacity,
+          'circle-stroke-width': highlighted ? 3 : 2,
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-opacity': opacity,
+        },
+      };
+    case 'line':
+    case 'linestring':
+      return [
+        {
+          id: sourceId,
+          type: 'line',
+          source: sourceId,
+          paint: {
+            'line-color': style.color,
+            'line-opacity': opacity,
+            'line-width': highlighted ? 5 : 3,
+          },
+        },
+        {
+          id: `${sourceId}-label`,
+          type: 'symbol',
+          source: sourceId,
+          layout: {
+            'symbol-placement': 'line-center',
+            'text-field': ['get', 'measurement'],
+            'text-font': ['Open Sans Semibold'],
+            'text-size': 12,
+            'text-offset': [0, -1],
+          },
+          paint: {
+            'text-color': '#1e293b',
+            'text-halo-color': '#ffffff',
+            'text-halo-width': 1.5,
+            'text-opacity': opacity,
+          },
+        },
+      ];
+    case 'polygon':
+      return [
+        {
+          id: sourceId,
+          type: 'fill',
+          source: sourceId,
+          paint: {
+            'fill-color': style.fill,
+            'fill-opacity': highlighted ? opacity * 0.5 : opacity * 0.3,
+          },
+        },
+        {
+          id: `${sourceId}-border`,
+          type: 'line',
+          source: sourceId,
+          paint: {
+            'line-color': style.color,
+            'line-opacity': opacity,
+            'line-width': highlighted ? 4 : 2,
+          },
+        },
+        {
+          id: `${sourceId}-label`,
+          type: 'symbol',
+          source: sourceId,
+          layout: {
+            'text-field': ['get', 'measurement'],
+            'text-font': ['Open Sans Semibold'],
+            'text-size': 12,
+          },
+          paint: {
+            'text-color': '#1e293b',
+            'text-halo-color': '#ffffff',
+            'text-halo-width': 1.5,
+            'text-opacity': opacity,
+          },
+        },
+      ];
+    default:
+      throw new Error(`Unexpected annotation geometry type: ${geomType}`);
+  }
+};

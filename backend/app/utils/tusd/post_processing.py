@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session
 from app import crud, schemas
 from app.api.api_v1.endpoints.raw_data import get_raw_data_dir
 from app.api.utils import get_data_product_dir, get_indoor_project_data_dir
+from app.core.config import settings
 from app.schemas.job import State, Status
 from app.tasks.post_upload_tasks import generate_point_cloud_preview
 from app.tasks.upload_tasks import (
@@ -249,6 +251,121 @@ def process_raw_data_uploaded_to_tusd(
     )
 
     return {"status": "processing"}
+
+
+ANNOTATION_ATTACHMENT_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".webp",
+    ".mp4",
+    ".mov",
+    ".webm",
+    ".avi",
+}
+
+
+def process_annotation_attachment_uploaded_to_tusd(
+    db: Session,
+    storage_path: Path,
+    original_filename: Path,
+    project_id: UUID,
+    flight_id: UUID,
+    data_product_id: UUID,
+    annotation_id: UUID,
+) -> Dict:
+    """Post-processing for annotation attachment uploaded via tusd. Moves the file
+    to the annotation's static directory and creates a DB record.
+
+    Args:
+        db (Session): Database session.
+        storage_path (Path): Location of file on tusd server.
+        original_filename (Path): Original name of uploaded file.
+        project_id (UUID): Project ID.
+        flight_id (UUID): Flight ID.
+        data_product_id (UUID): Data product ID.
+        annotation_id (UUID): Annotation ID.
+
+    Raises:
+        HTTPException: If file extension is unsupported or annotation not found.
+
+    Returns:
+        dict: Success status.
+    """
+    extension = original_filename.suffix.lower()
+    if extension not in ANNOTATION_ATTACHMENT_EXTENSIONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported file type. Allowed: {', '.join(sorted(ANNOTATION_ATTACHMENT_EXTENSIONS))}",
+        )
+
+    # Verify annotation exists and belongs to the data product
+    annotation = crud.annotation.get(db, id=annotation_id)
+    if not annotation or annotation.data_product_id != data_product_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Annotation not found or does not belong to this data product",
+        )
+
+    # Build destination directory
+    if os.environ.get("RUNNING_TESTS") == "1":
+        static_dir = Path(settings.TEST_STATIC_DIR)
+    else:
+        static_dir = Path(settings.STATIC_DIR)
+
+    attachment_dir = (
+        static_dir
+        / "projects"
+        / str(project_id)
+        / "flights"
+        / str(flight_id)
+        / "data_products"
+        / str(data_product_id)
+        / "annotations"
+        / str(annotation_id)
+    )
+    os.makedirs(attachment_dir, exist_ok=True)
+
+    new_filename = str(uuid4()) + extension
+    destination = attachment_dir / new_filename
+
+    # Move file from tusd storage
+    shutil.move(str(storage_path), str(destination))
+
+    # Build relative URL for serving
+    relative_path = (
+        f"/static/projects/{project_id}/flights/{flight_id}"
+        f"/data_products/{data_product_id}/annotations/{annotation_id}/{new_filename}"
+    )
+
+    # Determine content type
+    content_type_map = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".mp4": "video/mp4",
+        ".mov": "video/quicktime",
+        ".webm": "video/webm",
+        ".avi": "video/x-msvideo",
+    }
+    content_type = content_type_map.get(extension, "application/octet-stream")
+    file_size = os.path.getsize(destination)
+
+    # Create DB record
+    attachment_in = schemas.AnnotationAttachmentCreate(
+        original_filename=str(original_filename),
+        filepath=relative_path,
+        content_type=content_type,
+        size_bytes=file_size,
+    )
+    crud.annotation_attachment.create_with_annotation(
+        db, obj_in=attachment_in, annotation_id=annotation_id
+    )
+
+    return {"status": "success"}
 
 
 def process_indoor_data_uploaded_to_tusd(

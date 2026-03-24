@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     # Email
     MAIL_ENABLED: int = 0
     MAIL_ADMINS: str = ""
+    MAIL_CONTACT_RECIPIENTS: str = ""
     MAIL_USERNAME: EmailStr | str = ""
     MAIL_PASSWORD: SecretStr = SecretStr("")
     MAIL_FROM: EmailStr | str = ""
@@ -132,6 +133,7 @@ class Settings(BaseSettings):
 
     # Feature flags for optional modules
     ENABLE_BREEDBASE: bool = False
+    BREEDBASE_ALLOWED_HOSTS: str = ""
     ENABLE_CAMPAIGNS: bool = False
     ENABLE_IFORESTER: bool = False
     ENABLE_IGRADER: bool = False

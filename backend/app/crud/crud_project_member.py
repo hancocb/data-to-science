@@ -13,7 +13,7 @@ from app.crud.crud_team_member import set_name_and_email_attr, set_url_attr
 from app.models.indoor_project import IndoorProject
 from app.models.project import Project
 from app.models.project_member import ProjectMember
-from app.models.project_type import ProjectType
+from app.models.enums.project_type import ProjectType
 from app.models.team import Team
 from app.models.user import User
 from app.schemas.project_member import ProjectMemberCreate, ProjectMemberUpdate

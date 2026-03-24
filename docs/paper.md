@@ -44,7 +44,7 @@ bibliography: paper.bib
 
 # Summary
 
-Recently, geospatial data has begun to be used across a wide range of research fields; however, its large size and unstructured nature present challenges in fostering cohesive collaboration among diverse disciplines. The **Data-to-Science (D2S)** ecosystem is an open-source package that offers an easy-to-use web application and additional client applications, specifically designed for managing comprehensive geospatial data and thereby supporting a broad range of research applications. The D2S web application serves as the primary interface of the D2S ecosystem, originally intended for archiving and visualizing geospatial data, particularly uncrewed aerial system (UAS) data, which often poses management challenges for individual researchers. To assist those who wish to comprehensively analyze both archived data within the D2S and other external geospatial datasets, the current D2S ecosystem also includes three additional components: the [D2S Python module (*d2spy*)](https://py.d2s.org), the [QGIS plugin (*D2S Browser*)](https://plugins.qgis.org/plugins/d2s_browser/), and a [public STAC catalog](https://stac.d2s.org/) accessible via both API and browser interface.
+Recently, geospatial data has begun to be used across a wide range of research fields; however, its large size and unstructured nature present challenges in fostering cohesive collaboration among diverse disciplines. The **Data-to-Science (D2S)** ecosystem is an open-source package that offers an easy-to-use web application and additional client applications, specifically designed for managing comprehensive geospatial data and thereby supporting a broad range of research applications. The D2S web application serves as the primary interface of the D2S ecosystem, originally intended for archiving and visualizing geospatial data, particularly uncrewed aerial system (UAS) data, which often poses management challenges for individual researchers. To assist those who wish to comprehensively analyze both archived data within the D2S ecosystem and other external geospatial datasets, the current D2S ecosystem also includes three additional components: the [D2S Python module (*d2spy*)](https://py.d2s.org), the [QGIS plugin (*D2S Browser*)](https://plugins.qgis.org/plugins/d2s_browser/), and a [public STAC catalog](https://stac.d2s.org/) accessible via both API and browser interface.
 
 
 # Statement of Need
@@ -85,7 +85,7 @@ The D2S frontend web application provides researchers with an intuitive interfac
 |                    | images, from raw UAS data                                 | - Connecting to a photogrammetry pipeline based on open-source   |
 |                    |                                                           |   [OpenDroneMap (ODM)](https://www.opendronemap.org/) via        |
 |                    |                                                           |   ClusterODM                                                     |
-|                    |                                                           | - User configurable settings for the ODM pipeline                |
+|                    |                                                           | - User-configurable settings for the ODM pipeline                |
 |                    |                                                           | \vspace{1em}                                                     |
 +--------------------+-----------------------------------------------------------+------------------------------------------------------------------+
 | **Postprocessing** | Basic analysis of geospatial data products                | - Calculating vegetation indices (NDVI¹, ExG², VARI³) and        |
@@ -112,11 +112,11 @@ The D2S web application is containerized using Docker, enabling consistent deplo
 
 
 # Acknowledgements
-This work was partially supported by the Purdue Plant Science 2.0 Initiative, the Institute for Digital Forestry at Purdue, the PERSEUS grant (#2023-68012-38992) under USDA NIFA, the EFFICACI grant (#NR233A750004G044) under NCRS, and the National Agricultural Producers Data Cooperative (Award 2023-77039-41033; Sub-award 25-6231-0428-008) under USDA.
+This work was supported by the Purdue Plant Science 2.0 Initiative, the Institute for Digital Forestry at Purdue, the PERSEUS grant (Award 2023-68012-38992) under USDA NIFA, the National Agricultural Producers Data Cooperative (Award 2023-77039-41033; Subaward 25-6231-0428-008) under USDA, and the intramural research program (Award 2022-70412-38454; Subaward 026418G) under USDA NIFA. The views and conclusions contained herein are those of the authors and should not be interpreted as representing the official policies, either expressed or implied, of NIFA or the U.S. Government. The U.S. Government is authorized to reproduce and distribute reprints for governmental purposes, notwithstanding any copyright annotation therein.
 
 
 # Author Contributions:
-Conceptualization, J.J.; methodology, B.H., Z.C.Q., N.Z., Z.G. and J.J.; investigation, Z.C.Q., N.Z., and Z.G.; software, M.J., B.H., Z.C.Q., and J.J.; validation, M.J., B.H., J.S.D., and J.J.; data curation, M.J., B.H., and J.S.D.; writing – original draft preparation, M.J., B.H., J.S.D.; writing – review and editing, M.J., B.H., and J.J.; visualization, M.J., and B.H.; supervision, J.J.; project administration, M.J. and J.J.; resources, J.S.D., and J.J.; funding acquisition, J.J.; All authors have read and agreed to the published version of the manuscript.
+Conceptualization, J.J.; methodology, B.H., Z.C.Q., N.Z., Z.G. and J.J.; investigation, Z.C.Q., N.Z., and Z.G.; software, M.J., B.H., Z.C.Q., and J.J.; validation, M.J., B.H., J.S.D., and J.J.; data curation, M.J., B.H., and J.S.D.; writing – original draft preparation, M.J., B.H., J.S.D.; writing – review and editing, M.J., B.H., and J.J.; visualization, M.J., and B.H.; supervision, J.J.; project administration, M.J. and J.J.; resources, J.S.D., and J.J.; funding acquisition, J.J.; all authors have read and agreed to the published version of the manuscript.
 
 
 # References

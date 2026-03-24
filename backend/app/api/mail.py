@@ -168,22 +168,51 @@ def send_contact_email(
     message: str,
     sender: Optional[Dict[str, Any]] = None,
 ) -> None:
-    if sender:
-        content = f"<p>Message sent from Data to Science user {sender['name']} ({sender['email']}):</p>"
-    else:
-        content = f"<p>Message from anonymous Data to Science user:</p>"
-
     api_domain = settings.API_DOMAIN
+    contact_recipients = [
+        email.strip()
+        for email in settings.MAIL_CONTACT_RECIPIENTS.split(",")
+        if email.strip()
+    ]
 
-    content += f"<p>Topic:</p><blockquote>{topic}</blockquote>"
-    content += f"<p>Subject:</p><blockquote>{subject}</blockquote>"
-    content += f"<p>Message:</p><blockquote>{message}</blockquote>"
+    if sender:
+        first_name = sender["name"].split()[0] if sender["name"] else "there"
+        content = (
+            f"<p>Hi {first_name},</p>"
+            "<p>Thank you for contacting Data to Science. Your message has been "
+            "received and our support team has been copied on this email. "
+            "No action is needed on your part &mdash; a team member will follow up "
+            "if a response is required.</p>"
+            "<hr />"
+            f"<p><strong>Topic:</strong></p><blockquote>{topic}</blockquote>"
+            f"<p><strong>Subject:</strong></p><blockquote>{subject}</blockquote>"
+            f"<p><strong>Message:</strong></p><blockquote>{message}</blockquote>"
+            "<br /><br /><p>-Data to Science Support</p>"
+        )
+        recipients = [sender["email"]]
+    else:
+        content = (
+            "<p>Message from anonymous Data to Science user:</p>"
+            f"<p><strong>Topic:</strong></p><blockquote>{topic}</blockquote>"
+            f"<p><strong>Subject:</strong></p><blockquote>{subject}</blockquote>"
+            f"<p><strong>Message:</strong></p><blockquote>{message}</blockquote>"
+            "<br /><br /><p>-Data to Science Support</p>"
+        )
+        recipients = [settings.MAIL_FROM]
 
-    content += "<br /><br /><p>-Data to Science Support</p>"
+    # Fall back to MAIL_FROM if no contact recipients are configured
+    if not contact_recipients:
+        if sender:
+            recipients = [settings.MAIL_FROM]
+        cc = None
+    else:
+        cc = contact_recipients
 
     send_email(
         subject=f"Data to Science Contact Form: {topic} ({api_domain})",
-        recipients=[settings.MAIL_FROM],
+        recipients=recipients,
         body=content,
         background_tasks=background_tasks,
+        cc=cc,
+        reply_to=[sender["email"]] if sender else [settings.MAIL_FROM],
     )

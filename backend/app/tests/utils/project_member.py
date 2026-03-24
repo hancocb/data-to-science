@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app import crud, models
-from app.models.project_type import ProjectType
+from app.models.enums.project_type import ProjectType
 from app.schemas.project_member import ProjectMemberCreate
 from app.schemas.role import Role
 from app.tests.utils.project import create_project

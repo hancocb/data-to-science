@@ -1,5 +1,5 @@
 import uuid
-from typing import TYPE_CHECKING
+from typing import List, TYPE_CHECKING
 
 from datetime import date, datetime
 

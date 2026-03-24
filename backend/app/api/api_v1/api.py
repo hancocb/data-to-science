@@ -2,6 +2,8 @@ from fastapi import APIRouter
 
 from app.api.api_v1.endpoints import (
     admin,
+    annotation_attachments,
+    annotations,
     auth,
     file_permission,
     flights,
@@ -69,6 +71,16 @@ api_router.include_router(
     tags=["data_products"],
 )
 api_router.include_router(
+    annotations.router,
+    prefix="/projects/{project_id}/flights/{flight_id}/data_products/{data_product_id}/annotations",
+    tags=["annotations"],
+)
+api_router.include_router(
+    annotation_attachments.router,
+    prefix="/projects/{project_id}/flights/{flight_id}/data_products/{data_product_id}/annotations/{annotation_id}/attachments",
+    tags=["annotation_attachments"],
+)
+api_router.include_router(
     raw_data.router,
     prefix="/projects/{project_id}/flights/{flight_id}/raw_data",
     tags=["raw_data"],
@@ -125,6 +137,16 @@ if settings.ENABLE_BREEDBASE:
     api_router.include_router(
         breedbase_connections.study_router,
         prefix="/breedbase-connections/study",
+        tags=["breedbase_connections"],
+    )
+    api_router.include_router(
+        breedbase_connections.oauth_router,
+        prefix="/breedbase_connections/oauth",
+        tags=["breedbase_connections"],
+    )
+    api_router.include_router(
+        breedbase_connections.proxy_router,
+        prefix="/breedbase/brapi",
         tags=["breedbase_connections"],
     )
 

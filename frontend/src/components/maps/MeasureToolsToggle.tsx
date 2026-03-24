@@ -1,14 +1,24 @@
 import { useState, useEffect } from 'react';
 import { FaRuler } from 'react-icons/fa6';
 
+import MapToolToggleButton from './MapToolToggleButton';
 import MeasureTerraDrawControl from './MeasureTerraDrawControl';
+import { useAnnotationContext } from './contexts/AnnotationContext';
 
 type MeasureUnitType = 'metric' | 'imperial';
 
 export default function MeasureToolsToggle() {
+  const { active: annotationActive } = useAnnotationContext();
   const [isExpanded, setIsExpanded] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
   const [unitType, setUnitType] = useState<MeasureUnitType>('metric');
+
+  // Collapse measure tools when annotation mode activates
+  useEffect(() => {
+    if (annotationActive && isExpanded) {
+      setIsExpanded(false);
+    }
+  }, [annotationActive, isExpanded]);
 
   useEffect(() => {
     if (isExpanded) {
@@ -36,6 +46,8 @@ export default function MeasureToolsToggle() {
     setUnitType(unitType === 'metric' ? 'imperial' : 'metric');
   };
 
+  if (annotationActive) return null;
+
   return (
     <>
       <div className="absolute bottom-9 right-2 m-2.5 flex flex-col items-end gap-2 z-10 pointer-events-none">
@@ -56,9 +68,8 @@ export default function MeasureToolsToggle() {
         )}
         <div className="flex items-end gap-2">
           {shouldRender && <MeasureTerraDrawControl unitType={unitType} />}
-          <button
-            type="button"
-            className="h-12 w-12 bg-white rounded-md shadow-md flex items-center justify-center text-slate-600 hover:text-slate-800 hover:bg-slate-50 focus:outline-hidden focus:ring-2 focus:ring-accent2 transition-colors relative z-10 pointer-events-auto"
+          <MapToolToggleButton
+            active={isExpanded}
             aria-label={
               isExpanded ? 'Hide measurement tools' : 'Show measurement tools'
             }
@@ -67,7 +78,7 @@ export default function MeasureToolsToggle() {
             onClick={toggleExpanded}
           >
             <FaRuler className="h-5 w-5" />
-          </button>
+          </MapToolToggleButton>
         </div>
       </div>
     </>

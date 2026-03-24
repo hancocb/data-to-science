@@ -1,5 +1,10 @@
 # Data to Science
 
+[![DOI](https://joss.theoj.org/papers/10.21105/joss.09497/status.svg)](https://doi.org/10.21105/joss.09497)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3](https://img.shields.io/badge/python-3-blue.svg)](https://www.python.org/)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
+
 <p align="center">
   <img src="docs/assets/d2s-screenshot1.png" width="45%" />
   <img src="docs/assets/d2s-screenshot2.png" width="45%" />
@@ -8,6 +13,20 @@
   <img src="docs/assets/d2s-screenshot3.png" width="45%" />
   <img src="docs/assets/d2s-screenshot4.png" width="45%" />
 </p>
+
+## Table of Contents
+
+- [What is D2S?](#what-is-d2s)
+- [What Makes D2S Unique?](#what-makes-d2s-unique)
+- [What Can You Do with D2S?](#what-can-you-do-with-d2s)
+- [Deploying D2S](#-deploying-d2s)
+  - [Quick Start](#-quick-start)
+  - [Local Development](#-local-development)
+- [Example Deployment](#example-deployment)
+- [Companion Tools](#-companion-tools)
+- [Citation](#-citation)
+- [Contributing](#-contributing)
+- [Documentation](#-documentation)
 
 ## What is D2S?
 
@@ -55,59 +74,86 @@ Additional documentation and tutorials are available for users who want to explo
 - **User manual:** https://docs.gdsl.org/data-to-science-user-manual
 - **Website and tutorial videos:** https://d2s.org
 
-## ⚡ Quick Start
+## 🚀 Deploying D2S
 
-### 📋 Prerequisites
+D2S offers two paths for deployment:
 
-[Docker Engine](https://docs.docker.com/engine/install/) and [Docker Compose](https://docs.docker.com/compose/install/) are required to run the container with the following instructions. If you can successfully run `docker --version` and `docker compose --version` from a terminal then you are ready to proceed to the next section.
+- **Quick Start** — Uses prebuilt images and the `d2s_admin` CLI to get a running instance with minimal setup. Best for trying out the platform.
+- **Local Development** — Builds from source with full environment configuration. Best for contributors and custom deployments.
 
-### Copy env example files
+### ⚡ Quick Start
 
-1. Navigate to the root directory of the repository.
-2. Copy `backend.example.env` to a new file named `backend.env`.
+#### 📋 Prerequisites
+
+- [Python 3](https://www.python.org/) (standard library only — no additional packages required)
+- [Docker Engine](https://docs.docker.com/engine/install/) and [Docker Compose](https://docs.docker.com/compose/install/)
+
+If you can successfully run `python3 --version`, `docker --version`, and `docker compose --version` from a terminal then you are ready to proceed.
+
+#### Initialize and start
+
+From the root directory of the repository, run the following commands to set up and start the quickstart deployment:
+
+```
+python3 -m d2s_admin quickstart init
+python3 -m d2s_admin quickstart up
+```
+
+The `init` command copies the example environment files and creates the `tusd-data/` upload directory. The `up` command starts all service containers in the background.
+
+#### 👤 Create a superuser
+
+Once the containers are running, create an admin account:
+
+```
+python3 -m d2s_admin createsuperuser
+```
+
+You will be prompted for an email, first name, last name, and password. You can also pass these as flags:
+
+```
+python3 -m d2s_admin createsuperuser --email admin@example.com --first-name Admin --last-name User --password yourpassword
+```
+
+#### ⏹️ Stop the containers
+
+```
+python3 -m d2s_admin quickstart down
+```
+
+<details>
+<summary>Manual setup (without d2s_admin)</summary>
+
+If you prefer to set up manually instead of using `d2s_admin`:
+
+1. Copy the example environment files:
    ```
    cp backend.example.env backend.env
-   ```
-3. Copy `db.example.env` to a new file named `db.env`.
-   ```
    cp db.example.env db.env
-   ```
-4. Copy `frontend.example.env` to a new file named `frontend.env`.
-   ```
    cp frontend.example.env frontend.env
    ```
-
-### Create tusd-data directory for uploads
-
-1. Create a folder for data to be stored during the upload process.
+2. Create the upload directory:
    ```
    mkdir tusd-data
    ```
-
-### ▶️ Start the containers
-
-1. Use the following command to run the service containers in the background:
+3. Start the containers:
    ```
    docker compose -f docker-compose.quickstart.yml up -d
    ```
-
-### ⏹️ Stop the containers
-
-1. Use the following command to stop the containers:
+4. Stop the containers:
    ```
    docker compose -f docker-compose.quickstart.yml stop
    ```
 
-### 🌍 Accessing the web application
+</details>
 
-The Data To Science web application can be accessed from `http://localhost:8000`. It may take up to a minute for the backend to finish initializing. If you are running D2S on a virtual machine or remote server and accessing it via a LAN IP over HTTP, update `HTTP_COOKIE_SECURE` in your `backend.env` file to:
+#### 🌍 Accessing the web application
 
-```env
-HTTP_COOKIE_SECURE=0
-```
+The Data To Science web application can be accessed from `http://localhost:8000`. It may take up to a minute for the backend to finish initializing.
 
-This allows cookies to work correctly in non-localhost HTTP environments.
+### 🛠️ Local Development
 
+<<<<<<< HEAD
 ## ⚙️ Getting started with local code
 
 ### 📋 Prerequisites
@@ -308,6 +354,9 @@ docker compose exec backend python app/utils/generate_vector_formats.py --force
 ```
 
 The command will display progress per format and provide a summary of generated, skipped, and failed files for each format.
+=======
+For building from source, configuring environment variables, running tests, and working with database migrations, see the [Local Development Guide](docs/how-to/local-development.md).
+>>>>>>> main
 
 # Example Deployment
 
@@ -315,6 +364,55 @@ An example deployment of the Data to Science platform is available at https://ps
 
 While this instance provides a convenient way to try D2S, the platform is designed to be self-deployable, allowing researchers and organizations to host their own instances tailored to their specific needs.
 
+# 🧰 Companion Tools
+
+## d2spy — Python Client
+
+Python package for interacting with D2S programmatically — manage projects, flights, and data products from Python scripts and notebooks.
+
+```
+pip install d2spy
+```
+
+[Documentation](https://py.d2s.org) | [GitHub](https://github.com/gdslab/d2spy)
+
+## D2S Browser — QGIS Plugin
+
+Browse and manage your D2S project data directly from QGIS — access existing datasets or create projects, flights, and upload data products without leaving the desktop.
+
+[QGIS Plugin Page](https://plugins.qgis.org/plugins/d2s_browser/)
+
+# 📄 Citation
+
+If you use D2S in your research, please cite the following paper:
+
+> Jung et al., (2026). Data-to-Science (D2S): An open-source ecosystem for collaborative geospatial data science research. *Journal of Open Source Software*, 11(119), 9497. https://doi.org/10.21105/joss.09497
+
+```bibtex
+@article{Jung2026,
+  title = {Data-to-Science (D2S): An open-source ecosystem for collaborative geospatial data science research},
+  author = {Jung, Jinha and others},
+  journal = {Journal of Open Source Software},
+  year = {2026},
+  volume = {11},
+  number = {119},
+  pages = {9497},
+  doi = {10.21105/joss.09497},
+  url = {https://doi.org/10.21105/joss.09497}
+}
+```
+
+# 🤝 Contributing
+
+We welcome contributions, feedback, and discussion from the community. See [CONTRIBUTING.md](CONTRIBUTING.md) for details on reporting bugs, suggesting features, and contributing code.
+
 # 📘 Documentation
 
-For detailed documentation, visit [documentation here](docs/README.md).
+Full documentation is available at [gdslab.github.io/data-to-science](https://gdslab.github.io/data-to-science/), covering architecture, configuration, API reference, and development guides.
+
+To build the docs locally:
+
+```
+pip install mkdocs-material
+mkdocs serve
+```

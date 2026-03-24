@@ -1,4 +1,3 @@
-from enum import Enum
 from typing import Optional
 from typing_extensions import Self
 from uuid import UUID
@@ -6,7 +5,7 @@ from uuid import UUID
 from pydantic import AnyHttpUrl, BaseModel, EmailStr, model_validator
 
 from app.schemas.role import Role
-from app.models.project_type import ProjectType
+from app.models.enums.project_type import ProjectType
 
 
 # shared properties
