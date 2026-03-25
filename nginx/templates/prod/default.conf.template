@@ -1,5 +1,6 @@
 upstream backend {
     server  backend:5000;
+    keepalive 32;
 }
 
 upstream frontend {
@@ -65,6 +66,7 @@ server {
         proxy_request_buffering off;
         proxy_buffering         off;
         proxy_http_version      1.1;
+        proxy_set_header Connection "";
 
         # add X-Forwarded-* headers
         proxy_set_header X-Forwarded-Host  $host;
@@ -78,6 +80,8 @@ server {
 
     location /sl {
         proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
 
         # forward incoming requests to FastAPI backend container
         proxy_pass http://backend;
@@ -85,6 +89,8 @@ server {
 
     location /developer {
         proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
 
         proxy_pass http://backend;
     }
@@ -115,6 +121,8 @@ server {
     location /cog {
         # Proxy valid requests to the backend
         proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
 
         proxy_pass http://varnish;
     }
@@ -125,11 +133,16 @@ server {
 
         # Proxy valid requests to the backend
         proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+
         proxy_pass http://varnish/;
     }
 
     location /static {
         proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
 
         proxy_pass http://backend;
     }
@@ -137,6 +150,9 @@ server {
     # Force download for GeoTIFF and point cloud files
     location ~* ^/static/.*\.(tif|tiff|copc\.laz)$ {
         proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+
         proxy_pass http://backend;
 
         proxy_hide_header Content-Disposition;
@@ -146,6 +162,8 @@ server {
 
     location ~ ^/(potree|share-potree) {
         proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
 
         proxy_pass http://backend;
     }
@@ -160,6 +178,8 @@ server {
 
     location /pc-gltf-viewer {
         proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
 
         proxy_pass http://backend;
     }

@@ -56,8 +56,9 @@ services:
       retries: 5
       start_period: 30s
     deploy:
+      replicas: 1
       restart_policy:
-        condition: on-failure
+        condition: any
         delay: 5s
         max_attempts: 5
         window: 120s
@@ -154,8 +155,9 @@ services:
       retries: 5
       start_period: 30s
     deploy:
+      replicas: 1
       restart_policy:
-        condition: on-failure
+        condition: any
         delay: 5s
         max_attempts: 5
         window: 120s
