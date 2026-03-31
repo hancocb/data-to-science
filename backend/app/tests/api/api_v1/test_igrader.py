@@ -1,3 +1,5 @@
+import io
+
 from fastapi import status
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -392,3 +394,190 @@ def test_read_igrader_records_returns_empty_list(
     response_data = response.json()
     assert isinstance(response_data, list)
     assert len(response_data) == 0
+
+
+# --- Upload endpoint tests ---
+
+
+@pytest_requires_igrader
+def test_upload_igrader_image_with_project_owner_role(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test uploading an iGrader image as project owner."""
+    current_user = get_current_approved_user_by_jwt_or_api_key(
+        db, token=normal_user_access_token
+    )
+    project = create_project(db, owner_id=current_user.id)
+    file_content = b"\xff\xd8\xff\xe0fake-jpg-data"
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project.id}/igrader/upload",
+        files=[("files", ("a1234567-89a0-1234-5678-901234567890.jpg", io.BytesIO(file_content), "image/jpeg"))],
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["status"] == "success"
+    assert len(data["urls"]) == 1
+    assert "igrader_uploads" in data["urls"][0]
+    assert "a1234567-89a0-1234-5678-901234567890.jpg" in data["urls"][0]
+
+
+@pytest_requires_igrader
+def test_upload_igrader_image_with_api_key(
+    client: TestClient, db: Session, normal_user_api_key: str
+) -> None:
+    """Test uploading an iGrader image using API key."""
+    current_user = get_current_approved_user_by_jwt_or_api_key(
+        db, api_key=normal_user_api_key
+    )
+    project = create_project(db, owner_id=current_user.id)
+    file_content = b"\xff\xd8\xff\xe0fake-jpg-data"
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project.id}/igrader/upload",
+        files=[("files", ("test-image.jpg", io.BytesIO(file_content), "image/jpeg"))],
+        headers={"X-API-KEY": normal_user_api_key},
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["status"] == "success"
+
+
+@pytest_requires_igrader
+def test_upload_igrader_image_with_project_manager_role(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test uploading an iGrader image as project manager."""
+    current_user = get_current_user(db, normal_user_access_token)
+    owner = create_user(db)
+    project = create_project(db, owner_id=owner.id)
+    create_project_member(
+        db, role=Role.MANAGER, member_id=current_user.id, project_uuid=project.id
+    )
+    file_content = b"\xff\xd8\xff\xe0fake-jpg-data"
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project.id}/igrader/upload",
+        files=[("files", ("test-image.jpg", io.BytesIO(file_content), "image/jpeg"))],
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+
+
+@pytest_requires_igrader
+def test_upload_igrader_image_with_project_viewer_role(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test uploading an iGrader image as project viewer (should fail)."""
+    current_user = get_current_user(db, normal_user_access_token)
+    owner = create_user(db)
+    project = create_project(db, owner_id=owner.id)
+    create_project_member(
+        db, role=Role.VIEWER, member_id=current_user.id, project_uuid=project.id
+    )
+    file_content = b"\xff\xd8\xff\xe0fake-jpg-data"
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project.id}/igrader/upload",
+        files=[("files", ("test-image.jpg", io.BytesIO(file_content), "image/jpeg"))],
+    )
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest_requires_igrader
+def test_upload_igrader_image_unsupported_extension(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test uploading an iGrader image with unsupported extension."""
+    current_user = get_current_approved_user_by_jwt_or_api_key(
+        db, token=normal_user_access_token
+    )
+    project = create_project(db, owner_id=current_user.id)
+    file_content = b"fake-gif-data"
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project.id}/igrader/upload",
+        files=[("files", ("test-image.gif", io.BytesIO(file_content), "image/gif"))],
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Unsupported file type" in response.json()["detail"]
+
+
+@pytest_requires_igrader
+def test_upload_igrader_image_png(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test uploading a PNG iGrader image."""
+    current_user = get_current_approved_user_by_jwt_or_api_key(
+        db, token=normal_user_access_token
+    )
+    project = create_project(db, owner_id=current_user.id)
+    file_content = b"\x89PNG\r\n\x1a\nfake-png-data"
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project.id}/igrader/upload",
+        files=[("files", ("test-image.png", io.BytesIO(file_content), "image/png"))],
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["status"] == "success"
+    assert "test-image.png" in data["urls"][0]
+
+
+@pytest_requires_igrader
+def test_upload_igrader_image_tif(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test uploading a TIFF iGrader image."""
+    current_user = get_current_approved_user_by_jwt_or_api_key(
+        db, token=normal_user_access_token
+    )
+    project = create_project(db, owner_id=current_user.id)
+    file_content = b"II*\x00fake-tif-data"
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project.id}/igrader/upload",
+        files=[("files", ("test-image.tif", io.BytesIO(file_content), "image/tiff"))],
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["status"] == "success"
+    assert "test-image.tif" in data["urls"][0]
+
+
+@pytest_requires_igrader
+def test_upload_multiple_igrader_images(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test uploading multiple iGrader images at once."""
+    current_user = get_current_approved_user_by_jwt_or_api_key(
+        db, token=normal_user_access_token
+    )
+    project = create_project(db, owner_id=current_user.id)
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project.id}/igrader/upload",
+        files=[
+            ("files", ("image-1.jpg", io.BytesIO(b"\xff\xd8\xff\xe0data1"), "image/jpeg")),
+            ("files", ("image-2.png", io.BytesIO(b"\x89PNGdata2"), "image/png")),
+            ("files", ("image-3.tif", io.BytesIO(b"II*\x00data3"), "image/tiff")),
+        ],
+    )
+    assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["status"] == "success"
+    assert len(data["urls"]) == 3
+    assert "image-1.jpg" in data["urls"][0]
+    assert "image-2.png" in data["urls"][1]
+    assert "image-3.tif" in data["urls"][2]
+
+
+@pytest_requires_igrader
+def test_upload_multiple_igrader_images_one_invalid(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test that one invalid file in a batch rejects the entire upload."""
+    current_user = get_current_approved_user_by_jwt_or_api_key(
+        db, token=normal_user_access_token
+    )
+    project = create_project(db, owner_id=current_user.id)
+    response = client.post(
+        f"{settings.API_V1_STR}/projects/{project.id}/igrader/upload",
+        files=[
+            ("files", ("valid.jpg", io.BytesIO(b"\xff\xd8\xff\xe0data"), "image/jpeg")),
+            ("files", ("invalid.gif", io.BytesIO(b"gifdata"), "image/gif")),
+        ],
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "invalid.gif" in response.json()["detail"]
