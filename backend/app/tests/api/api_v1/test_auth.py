@@ -7,11 +7,13 @@ from uuid import uuid4
 
 from fastapi import status
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from jose import jwt
 
 from app import crud
+from app.models.single_use_token import SingleUseToken
 from app.api.deps import get_current_user
 from app.core import security
 from app.core.config import settings
@@ -722,3 +724,10 @@ def test_change_email_cleans_up_previous_token(
     user_in_db = crud.user.get(db, id=current_user.id)
     assert user_in_db is not None
     assert user_in_db.pending_email == second_email
+    # Verify only one emailchg token exists (first was cleaned up)
+    stmt = select(SingleUseToken).where(
+        SingleUseToken.user_id == current_user.id,
+        SingleUseToken.token.contains("$emailchg$"),
+    )
+    remaining_tokens = db.scalars(stmt).all()
+    assert len(remaining_tokens) == 1

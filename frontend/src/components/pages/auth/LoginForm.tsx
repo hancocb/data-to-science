@@ -42,7 +42,7 @@ function SearchParamAlerts({
       )}
       {searchParams.get('error') === 'expired' && (
         <Alert alertType="error">
-          Your verification link has expired. Please request the change again.
+          Your verification link has expired. Please request a new one.
         </Alert>
       )}
       {searchParams.get('error') === 'invalid' && (
