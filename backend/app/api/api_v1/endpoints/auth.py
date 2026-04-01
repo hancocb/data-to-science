@@ -20,6 +20,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import EmailStr
 from sqlalchemy.orm import Session
 
+from sqlalchemy.exc import IntegrityError
+
 from app import crud, models, schemas
 from app.api import deps, mail
 from app.core import security
@@ -230,6 +232,130 @@ def change_password(
     user_in = schemas.user.UserUpdate(password=new_password)
     user_updated = crud.user.update(db, db_obj=user, obj_in=user_in)
     return user_updated
+
+
+@router.post("/change-email", status_code=status.HTTP_200_OK)
+def request_email_change(
+    current_password: Annotated[str, Form()],
+    new_email: Annotated[EmailStr, Form()],
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(deps.get_db),
+    current_user: models.User = Depends(deps.get_current_approved_user),
+) -> Any:
+    """Request an email address change. Requires password re-authentication."""
+    if current_user.is_demo:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo accounts cannot change email",
+        )
+    # Re-authenticate
+    user = crud.user.authenticate(
+        db, email=current_user.email, password=current_password
+    )
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Provided current password is incorrect",
+        )
+    # Reject if new email matches current email
+    if new_email.lower() == user.email.lower():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New email must be different from current email",
+        )
+    # Check new email is not already in use
+    existing = crud.user.get_by_email(db, email=new_email)
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email address already in use",
+        )
+    # Clean up any existing email-change tokens for this user
+    crud.user.remove_single_use_tokens_by_salt(db, user_id=user.id, salt="emailchg")
+    # Set pending email
+    crud.user.update(
+        db, db_obj=user, obj_in=schemas.UserUpdate(pending_email=new_email)
+    )
+    if settings.MAIL_ENABLED:
+        # Create verification token
+        token = secrets.token_urlsafe()
+        crud.user.create_single_use_token(
+            db,
+            obj_in=schemas.SingleUseTokenCreate(
+                token=security.get_token_hash(token, salt="emailchg")
+            ),
+            user_id=user.id,
+        )
+        # Send verification email to new address
+        mail.send_email_change_verification(
+            background_tasks=background_tasks,
+            first_name=user.first_name,
+            new_email=new_email,
+            verification_token=token,
+        )
+        # Send informational notification to old address
+        mail.send_email_change_notification(
+            background_tasks=background_tasks,
+            first_name=user.first_name,
+            old_email=user.email,
+        )
+        logger.info(
+            "Email change requested for user %s from %s to %s",
+            user.id,
+            user.email,
+            new_email,
+        )
+    else:
+        # Mail disabled — apply change immediately
+        crud.user.update(
+            db, db_obj=user, obj_in={"email": new_email, "pending_email": None}
+        )
+        logger.info(
+            "Email change applied immediately (mail disabled) for user %s to %s",
+            user.id,
+            new_email,
+        )
+
+    return status.HTTP_200_OK
+
+
+@router.get(
+    "/confirm-email-change",
+    response_class=RedirectResponse,
+    status_code=status.HTTP_302_FOUND,
+)
+def confirm_email_change(token: str, db: Session = Depends(deps.get_db)) -> Any:
+    """Confirm email change by verifying the token sent to the new email address."""
+    token_db_obj = crud.user.get_single_use_token(
+        db, token_hash=security.get_token_hash(token, salt="emailchg")
+    )
+    if not token_db_obj:
+        return settings.API_DOMAIN + "/auth/login?error=invalid"
+    if security.check_token_expired(token_db_obj):
+        crud.user.remove_single_use_token(db, db_obj=token_db_obj)
+        return settings.API_DOMAIN + "/auth/login?error=expired"
+    # Find user associated with token
+    user = crud.user.get(db, id=token_db_obj.user_id)
+    if not user or not user.pending_email:
+        crud.user.remove_single_use_token(db, db_obj=token_db_obj)
+        return settings.API_DOMAIN + "/auth/login?error=invalid"
+    # Re-check uniqueness (TOCTOU guard)
+    existing = crud.user.get_by_email(db, email=user.pending_email)
+    if existing:
+        crud.user.remove_single_use_token(db, db_obj=token_db_obj)
+        return settings.API_DOMAIN + "/auth/login?error=email_taken"
+    # Apply the email change
+    new_email = user.pending_email
+    try:
+        crud.user.update(
+            db, db_obj=user, obj_in={"email": new_email, "pending_email": None}
+        )
+    except IntegrityError:
+        return settings.API_DOMAIN + "/auth/login?error=email_taken"
+    # Remove token
+    crud.user.remove_single_use_token(db, db_obj=token_db_obj)
+    logger.info("Email change completed for user %s to %s", user.id, new_email)
+    return settings.API_DOMAIN + "/auth/login?email_changed=true"
 
 
 @router.get("/reset-password")

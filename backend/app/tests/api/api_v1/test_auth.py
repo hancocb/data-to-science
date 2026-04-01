@@ -2,6 +2,7 @@ import random
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 from uuid import uuid4
 
 from fastapi import status
@@ -15,8 +16,10 @@ from app.api.deps import get_current_user
 from app.core import security
 from app.core.config import settings
 from app.schemas.refresh_token import RefreshTokenCreate
+from app.schemas.single_use_token import SingleUseTokenCreate
 from app.schemas.user import UserUpdate
 from app.tests.utils.user import create_user
+from app.tests.utils.utils import random_email
 
 
 def test_login_with_valid_credentials(client: TestClient, db: Session) -> None:
@@ -507,3 +510,169 @@ def test_activity_tracking_updates_when_last_activity_is_none(
     assert updated_user is not None
     assert updated_user.last_activity_at is not None
     assert before_update <= updated_user.last_activity_at <= after_update
+
+
+# --- Email change tests ---
+
+
+@patch("app.api.api_v1.endpoints.auth.mail.send_email_change_notification")
+@patch("app.api.api_v1.endpoints.auth.mail.send_email_change_verification")
+def test_change_email_success(
+    mock_verify, mock_notify,
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test successful email change request sets pending_email."""
+    current_user = get_current_user(db, normal_user_access_token)
+    new_email = random_email()
+    data = {"current_password": "testuserpassword", "new_email": new_email}
+    response = client.post(f"{settings.API_V1_STR}/auth/change-email", data=data)
+    assert response.status_code == status.HTTP_200_OK
+    # Verify pending_email was set on user
+    user_in_db = crud.user.get(db, id=current_user.id)
+    assert user_in_db is not None
+    assert user_in_db.pending_email == new_email
+
+
+@patch("app.api.api_v1.endpoints.auth.mail.send_email_change_notification")
+@patch("app.api.api_v1.endpoints.auth.mail.send_email_change_verification")
+def test_change_email_wrong_password(
+    mock_verify, mock_notify,
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test email change fails with wrong password."""
+    new_email = random_email()
+    data = {"current_password": "wrongpassword", "new_email": new_email}
+    response = client.post(f"{settings.API_V1_STR}/auth/change-email", data=data)
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+@patch("app.api.api_v1.endpoints.auth.mail.send_email_change_notification")
+@patch("app.api.api_v1.endpoints.auth.mail.send_email_change_verification")
+def test_change_email_same_email(
+    mock_verify, mock_notify,
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test email change fails when new email matches current email."""
+    current_user = get_current_user(db, normal_user_access_token)
+    data = {"current_password": "testuserpassword", "new_email": current_user.email}
+    response = client.post(f"{settings.API_V1_STR}/auth/change-email", data=data)
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@patch("app.api.api_v1.endpoints.auth.mail.send_email_change_notification")
+@patch("app.api.api_v1.endpoints.auth.mail.send_email_change_verification")
+def test_change_email_duplicate_email(
+    mock_verify, mock_notify,
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test email change fails when new email is already in use."""
+    other_user = create_user(db)
+    data = {"current_password": "testuserpassword", "new_email": other_user.email}
+    response = client.post(f"{settings.API_V1_STR}/auth/change-email", data=data)
+    assert response.status_code == status.HTTP_409_CONFLICT
+
+
+@patch("app.api.api_v1.endpoints.auth.mail.send_email_change_notification")
+@patch("app.api.api_v1.endpoints.auth.mail.send_email_change_verification")
+def test_change_email_demo_user(
+    mock_verify, mock_notify,
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test email change is blocked for demo users."""
+    current_user = get_current_user(db, normal_user_access_token)
+    crud.user.update(db, db_obj=current_user, obj_in=UserUpdate(is_demo=True))
+    new_email = random_email()
+    data = {"current_password": "testuserpassword", "new_email": new_email}
+    response = client.post(f"{settings.API_V1_STR}/auth/change-email", data=data)
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+def test_confirm_email_change_with_valid_token(
+    client: TestClient, db: Session
+) -> None:
+    """Test confirming an email change with a valid token."""
+    new_email = random_email()
+    user = create_user(db, password="mysecretpassword")
+    # Set pending email
+    crud.user.update(db, db_obj=user, obj_in={"pending_email": new_email})
+    # Create token with emailchg salt
+    token = secrets.token_urlsafe()
+    crud.user.create_single_use_token(
+        db,
+        obj_in=SingleUseTokenCreate(
+            token=security.get_token_hash(token, salt="emailchg")
+        ),
+        user_id=user.id,
+    )
+    r = client.get(
+        f"{settings.API_V1_STR}/auth/confirm-email-change",
+        params={"token": token},
+    )
+    user_in_db = crud.user.get(db, id=user.id)
+    assert r.request.url == settings.API_DOMAIN + "/auth/login?email_changed=true"
+    assert user_in_db is not None
+    assert user_in_db.email == new_email
+    assert user_in_db.pending_email is None
+
+
+def test_confirm_email_change_with_invalid_token(
+    client: TestClient, db: Session
+) -> None:
+    """Test confirming an email change with an invalid token."""
+    r = client.get(
+        f"{settings.API_V1_STR}/auth/confirm-email-change",
+        params={"token": "invalid-token"},
+    )
+    assert r.request.url == settings.API_DOMAIN + "/auth/login?error=invalid"
+
+
+def test_confirm_email_change_duplicate_email(
+    client: TestClient, db: Session
+) -> None:
+    """Test TOCTOU guard: another user registers the email before confirmation."""
+    new_email = random_email()
+    user = create_user(db, password="mysecretpassword")
+    # Set pending email
+    crud.user.update(db, db_obj=user, obj_in={"pending_email": new_email})
+    # Create token
+    token = secrets.token_urlsafe()
+    crud.user.create_single_use_token(
+        db,
+        obj_in=SingleUseTokenCreate(
+            token=security.get_token_hash(token, salt="emailchg")
+        ),
+        user_id=user.id,
+    )
+    # Another user takes the email
+    create_user(db, email=new_email)
+    r = client.get(
+        f"{settings.API_V1_STR}/auth/confirm-email-change",
+        params={"token": token},
+    )
+    assert r.request.url == settings.API_DOMAIN + "/auth/login?error=email_taken"
+    # Original user's email should not have changed
+    user_in_db = crud.user.get(db, id=user.id)
+    assert user_in_db is not None
+    assert user_in_db.email != new_email
+
+
+@patch("app.api.api_v1.endpoints.auth.mail.send_email_change_notification")
+@patch("app.api.api_v1.endpoints.auth.mail.send_email_change_verification")
+def test_change_email_cleans_up_previous_token(
+    mock_verify, mock_notify,
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Test that requesting a new email change cleans up previous tokens."""
+    current_user = get_current_user(db, normal_user_access_token)
+    # First request
+    first_email = random_email()
+    data = {"current_password": "testuserpassword", "new_email": first_email}
+    client.post(f"{settings.API_V1_STR}/auth/change-email", data=data)
+    # Second request should clean up first token
+    second_email = random_email()
+    data = {"current_password": "testuserpassword", "new_email": second_email}
+    client.post(f"{settings.API_V1_STR}/auth/change-email", data=data)
+    # Verify pending_email is the second email
+    user_in_db = crud.user.get(db, id=current_user.id)
+    assert user_in_db is not None
+    assert user_in_db.pending_email == second_email
