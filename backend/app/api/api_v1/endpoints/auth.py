@@ -18,9 +18,8 @@ from fastapi import Cookie
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import EmailStr
-from sqlalchemy.orm import Session
-
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app import crud, models, schemas
 from app.api import deps, mail
@@ -305,6 +304,7 @@ def request_email_change(
             user.email,
             new_email,
         )
+        return {"detail": "verification_sent"}
     else:
         # Mail disabled — apply change immediately
         crud.user.update(
@@ -315,8 +315,7 @@ def request_email_change(
             user.id,
             new_email,
         )
-
-    return status.HTTP_200_OK
+        return {"detail": "email_changed"}
 
 
 @router.get(

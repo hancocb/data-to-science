@@ -62,10 +62,11 @@ export default function ChangeEmailForm({
       if (response) {
         if (response.status === 200) {
           await updateProfile();
-          setStatus({
-            type: 'success',
-            msg: 'A verification link has been sent to your new email address. Please check your inbox to confirm the change.',
-          });
+          const msg =
+            response.data?.detail === 'email_changed'
+              ? 'Your email address has been updated.'
+              : 'A verification link has been sent to your new email address. Please check your inbox to confirm the change.';
+          setStatus({ type: 'success', msg });
           setShowChangeEmailForm(false);
         } else {
           setStatus({ type: 'error', msg: 'Unable to change email' });

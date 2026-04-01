@@ -515,6 +515,7 @@ def test_activity_tracking_updates_when_last_activity_is_none(
 # --- Email change tests ---
 
 
+@patch.object(settings, "MAIL_ENABLED", 1)
 @patch("app.api.api_v1.endpoints.auth.mail.send_email_change_notification")
 @patch("app.api.api_v1.endpoints.auth.mail.send_email_change_verification")
 def test_change_email_success(
@@ -656,6 +657,7 @@ def test_confirm_email_change_duplicate_email(
     assert user_in_db.email != new_email
 
 
+@patch.object(settings, "MAIL_ENABLED", 1)
 @patch("app.api.api_v1.endpoints.auth.mail.send_email_change_notification")
 @patch("app.api.api_v1.endpoints.auth.mail.send_email_change_verification")
 def test_change_email_cleans_up_previous_token(
