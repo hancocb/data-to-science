@@ -59,6 +59,14 @@ export const passwordChangeValidationSchema = Yup.object({
 
 export const profileValidationSchema = nameRules;
 
+export const emailChangeValidationSchema = Yup.object({
+  currentPassword: Yup.string().required('Enter your current password'),
+  newEmail: Yup.string()
+    .max(254, 'Email address cannot be more than 254 characters')
+    .email('Invalid email address')
+    .required('Enter your new email address'),
+});
+
 export const recoveryValidationSchema = Yup.object({
   email: Yup.string()
     .email('Invalid email address')

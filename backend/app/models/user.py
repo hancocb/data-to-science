@@ -51,6 +51,9 @@ class User(Base):
         Boolean, default=False, nullable=False
     )
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    pending_email: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=utcnow(), nullable=False
     )

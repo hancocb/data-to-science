@@ -9,6 +9,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { yupResolver } from '@hookform/resolvers/yup';
 
+import ChangeEmailForm from './ChangeEmailForm';
 import ProfilePictureUpload from './ProfilePictureUpload';
 import { passwordHintText } from './RegistrationForm';
 import Alert, { Status } from '../../Alert';
@@ -417,6 +418,7 @@ function APIAccessForm({ setStatus, updateProfile, user }: APIAccessForm) {
 
 export default function Profile() {
   const { updateProfile, user } = useContext(AuthContext);
+  const [showChangeEmailForm, setShowChangeEmailForm] = useState(false);
   const [showChangePasswordForm, setShowChangePasswordForm] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
 
@@ -470,6 +472,38 @@ export default function Profile() {
                   updateProfile={updateProfile}
                   user={user}
                 />
+                <span className="text-xl font-semibold">
+                  Email Management
+                </span>
+                <p>
+                  Update your account email address by clicking the below
+                  button.
+                </p>
+                {user.pending_email && !showChangeEmailForm && (
+                  <HintText>
+                    A verification email was sent to{' '}
+                    <span className="font-semibold">
+                      {user.pending_email}
+                    </span>
+                    . Check your inbox to confirm.
+                  </HintText>
+                )}
+                {showChangeEmailForm ? (
+                  <ChangeEmailForm
+                    setShowChangeEmailForm={setShowChangeEmailForm}
+                    setStatus={setStatus}
+                    updateProfile={updateProfile}
+                    user={user}
+                  />
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setShowChangeEmailForm(true)}
+                  >
+                    Change Email
+                  </Button>
+                )}
                 <span className="text-xl font-semibold">
                   Password Management
                 </span>

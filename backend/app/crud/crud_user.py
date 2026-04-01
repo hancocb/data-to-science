@@ -96,6 +96,26 @@ class CRUDUser(CRUDBase[User, UserCreate, UserUpdate]):
             session.commit()
             return db_obj
 
+    def remove_single_use_tokens_by_salt(
+        self, db: Session, user_id: UUID, salt: str
+    ) -> int:
+        """Remove all single-use tokens for a user that were hashed with the given salt.
+
+        The sha256_crypt hash format embeds the salt as: $5$rounds=...$<salt>$...
+        """
+        salt_pattern = f"${salt}$"
+        stmt = select(SingleUseToken).where(
+            SingleUseToken.user_id == user_id,
+            SingleUseToken.token.contains(salt_pattern),
+        )
+        with db as session:
+            tokens = session.scalars(stmt).all()
+            count = len(tokens)
+            for token in tokens:
+                session.delete(token)
+            session.commit()
+        return count
+
     def get_multi_by_query(
         self, db: Session, q: str | None = "", include_all: bool = False
     ) -> Sequence[User]:
