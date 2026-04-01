@@ -161,6 +161,70 @@ def send_account_approved(
     )
 
 
+def send_email_change_verification(
+    background_tasks: BackgroundTasks,
+    first_name: str,
+    new_email: EmailStr,
+    verification_token: str,
+) -> None:
+    verification_url = (
+        settings.API_DOMAIN + settings.API_V1_STR + "/auth/confirm-email-change?"
+    )
+    verification_url += f"token={verification_token}"
+
+    verify_btn = "<button style='display: inline-block;outline: none;"
+    verify_btn += "border-radius: 3px;font-size: 14px;"
+    verify_btn += "font-weight: 500;line-height: 16px;padding: 2px 16px;"
+    verify_btn += "height: 38px;min-width: 96px;min-height: 38px;border: none;"
+    verify_btn += "color: #fff;background-color: rgb(88, 101, 242);'>"
+    verify_btn += "Confirm New Email</button>"
+
+    content = f"<p>Hi {first_name},</p>"
+    content += (
+        "<p>A request was made to change your Data to Science account email to this "
+        "address. Please click the button below to confirm.<br /><br />"
+        f"<a href='{verification_url}' target='_blank'>{verify_btn}</a>"
+        "<br /><br />"
+        "This link will expire in 1 hour. If you did not make this request, "
+        "you may ignore this email.<br /><br />"
+        "If you have any questions, please reach out to support at "
+        f"{settings.MAIL_FROM}.</p>"
+        "<p>-Data to Science Support</p>"
+    )
+
+    send_email(
+        subject="Confirm your new Data to Science email address",
+        recipients=[new_email],
+        body=content,
+        background_tasks=background_tasks,
+    )
+
+
+def send_email_change_notification(
+    background_tasks: BackgroundTasks,
+    first_name: str,
+    old_email: EmailStr,
+) -> None:
+    content = f"<p>Hi {first_name},</p>"
+    content += (
+        "<p>A request was made to change the email address on your Data to Science "
+        "account. If this was you, no action is needed &mdash; check your new email "
+        "inbox for a confirmation link.<br /><br />"
+        "If you did not make this request, please change your password immediately "
+        "to secure your account.<br /><br />"
+        "If you have any questions, please reach out to support at "
+        f"{settings.MAIL_FROM}.</p>"
+        "<p>-Data to Science Support</p>"
+    )
+
+    send_email(
+        subject="Email change requested for your Data to Science account",
+        recipients=[old_email],
+        body=content,
+        background_tasks=background_tasks,
+    )
+
+
 def send_contact_email(
     background_tasks: BackgroundTasks,
     topic: str,

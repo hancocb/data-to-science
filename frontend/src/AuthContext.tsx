@@ -15,6 +15,7 @@ export interface User {
   is_approved: boolean;
   is_email_confirmed: boolean;
   is_superuser: boolean;
+  pending_email: string | null;
   profile_url: string | null;
   api_access_token: string | null;
   created_at: string;

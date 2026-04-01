@@ -41,6 +41,7 @@ class UserCreate(UserBase):
 # properties to receive via API on update
 class UserUpdate(UserBase):
     password: Optional[str] = None
+    pending_email: Optional[EmailStr] = None
 
 
 # properties shared by models stored in DB
@@ -56,6 +57,7 @@ class User(UserInDBBase):
     api_access_token: Optional[str] = None
     exts: List[str] = []
     is_superuser: bool
+    pending_email: Optional[str] = None
     profile_url: Optional[AnyHttpUrl] = None
     # exclude from api responses
     is_demo: bool = Field(exclude=True)

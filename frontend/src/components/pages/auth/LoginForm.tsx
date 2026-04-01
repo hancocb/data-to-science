@@ -30,6 +30,26 @@ function SearchParamAlerts({
           Your email address has been confirmed.
         </Alert>
       )}
+      {searchParams.get('email_changed') === 'true' && (
+        <Alert alertType="success">
+          Your email address has been updated.
+        </Alert>
+      )}
+      {searchParams.get('error') === 'email_taken' && (
+        <Alert alertType="error">
+          Email change failed — that address is already in use.
+        </Alert>
+      )}
+      {searchParams.get('error') === 'expired' && (
+        <Alert alertType="error">
+          Your verification link has expired. Please request a new one.
+        </Alert>
+      )}
+      {searchParams.get('error') === 'invalid' && (
+        <Alert alertType="error">
+          That verification link is no longer valid. Please request a new one.
+        </Alert>
+      )}
       {searchParams.get('password_reset') === 'true' && (
         <Alert alertType="success">Your password has been reset.</Alert>
       )}
