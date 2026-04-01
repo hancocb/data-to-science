@@ -91,19 +91,26 @@ def test_email_confirmation_with_valid_token(client: TestClient, db: Session) ->
     assert user_in_db and user_in_db.is_email_confirmed is True
 
 
-# def test_email_confirmation_with_expired_token(
-#     client: TestClient,
-#     db: Session
-# ) -> None:
-#     token = secrets.token_urlsafe()
-#     user = create_user(db, token=token, token_expired=True)
-#     r = client.get(
-#         f"{settings.API_V1_STR}/auth/confirm-email",
-#         params={"token": token},
-#     )
-#     user_in_db = crud.user.get(db, id=user.id)
-#     assert user_in_db and user_in_db.is_email_confirmed is False
-#     assert r.status_code == 403
+def test_email_confirmation_with_expired_token(
+    client: TestClient, db: Session
+) -> None:
+    token = secrets.token_urlsafe()
+    user = create_user(db, token=token)
+    # Back-date token to 120 minutes ago (past the 60-minute expiry)
+    token_db_obj = crud.user.get_single_use_token(
+        db, token_hash=security.get_token_hash(token, salt="confirm")
+    )
+    token_db_obj.created_at = datetime.now(timezone.utc) - timedelta(minutes=120)
+    db.add(token_db_obj)
+    db.commit()
+    db.refresh(token_db_obj)
+    r = client.get(
+        f"{settings.API_V1_STR}/auth/confirm-email",
+        params={"token": token},
+    )
+    assert r.request.url == settings.API_DOMAIN + "/auth/login?error=expired"
+    user_in_db = crud.user.get(db, id=user.id)
+    assert user_in_db and user_in_db.is_email_confirmed is False
 
 
 def test_change_password(
@@ -614,6 +621,43 @@ def test_confirm_email_change_with_valid_token(
     assert user_in_db is not None
     assert user_in_db.email == new_email
     assert user_in_db.pending_email is None
+
+
+def test_confirm_email_change_with_expired_token(
+    client: TestClient, db: Session
+) -> None:
+    """Test confirming an email change with an expired token."""
+    new_email = random_email()
+    user = create_user(db, password="mysecretpassword")
+    original_email = user.email
+    # Set pending email
+    crud.user.update(db, db_obj=user, obj_in={"pending_email": new_email})
+    # Create token with emailchg salt
+    token = secrets.token_urlsafe()
+    crud.user.create_single_use_token(
+        db,
+        obj_in=SingleUseTokenCreate(
+            token=security.get_token_hash(token, salt="emailchg")
+        ),
+        user_id=user.id,
+    )
+    # Back-date token to 120 minutes ago (past the 60-minute expiry)
+    token_db_obj = crud.user.get_single_use_token(
+        db, token_hash=security.get_token_hash(token, salt="emailchg")
+    )
+    token_db_obj.created_at = datetime.now(timezone.utc) - timedelta(minutes=120)
+    db.add(token_db_obj)
+    db.commit()
+    db.refresh(token_db_obj)
+    r = client.get(
+        f"{settings.API_V1_STR}/auth/confirm-email-change",
+        params={"token": token},
+    )
+    assert r.request.url == settings.API_DOMAIN + "/auth/login?error=expired"
+    user_in_db = crud.user.get(db, id=user.id)
+    assert user_in_db is not None
+    assert user_in_db.email == original_email
+    assert user_in_db.pending_email == new_email
 
 
 def test_confirm_email_change_with_invalid_token(
