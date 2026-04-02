@@ -1,7 +1,7 @@
 """add igrader table
 
 Revision ID: 66bd1cf46b5c
-Revises: 4109959ebc3e
+Revises: a7f2c3d8e1b4
 Create Date: 2026-02-04 14:32:13.405499
 
 """
@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = '66bd1cf46b5c'
-down_revision: str | None = '4109959ebc3e'
+down_revision: str | None = 'a7f2c3d8e1b4'
 branch_labels: str | None = None
 depends_on: str | None = None
 
