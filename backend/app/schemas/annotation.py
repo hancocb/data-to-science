@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import List, Optional, TYPE_CHECKING
+from typing import Any, List, Optional, TYPE_CHECKING
 
 from geojson_pydantic import Feature
-from pydantic import BaseModel, ConfigDict, Field, UUID4
+from pydantic import BaseModel, ConfigDict, Field, UUID4, field_validator
 
 from app.models.enums.visibility import Visibility
 
@@ -28,12 +28,26 @@ class AnnotationCreate(AnnotationBase):
     visibility: Visibility = Visibility.OWNER
     style: Optional[dict] = None
 
+    @field_validator("visibility", mode="before")
+    @classmethod
+    def normalize_visibility(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return v.upper()
+        return v
+
 
 # properties to receive via API on update
 class AnnotationUpdate(AnnotationBase):
     tags: Optional[List[str]] = None
     visibility: Optional[Visibility] = None
     style: Optional[dict] = None
+
+    @field_validator("visibility", mode="before")
+    @classmethod
+    def normalize_visibility(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return v.upper()
+        return v
 
 
 # properties shared by models stored in DB
