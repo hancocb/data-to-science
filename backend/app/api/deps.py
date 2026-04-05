@@ -4,6 +4,7 @@ from typing import Any, Generator, Optional, Union
 from uuid import UUID
 
 from fastapi import BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.security import APIKeyHeader
 from fastapi_mail import MessageSchema, MessageType
 from pydantic import EmailStr
@@ -46,15 +47,14 @@ def get_db() -> Generator:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Must sign in to access",
             )
+        elif isinstance(exception, (HTTPException, RequestValidationError)):
+            raise exception
         else:
-            if exception_name != "HTTPException":
-                logger.exception("Uncaught error")
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Unexpected error has occurred",
-                )
-            else:
-                raise exception
+            logger.exception("Uncaught error")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Unexpected error has occurred",
+            )
     finally:
         db.close()
 
