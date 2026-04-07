@@ -76,6 +76,9 @@ class MetashapeQueryParams(BaseModel):
     alignQuality: Literal["low", "medium", "high"]
     backend: Literal["metashape"]
     blendingMode: Literal["average", "disabled", "min", "max", "mosaic"]
+    buildDepthFilterMode: Literal[
+        "no_filtering", "mild_filtering", "moderate_filtering", "aggressive_filtering"
+    ]
     buildDepthQuality: Literal["low", "medium", "high"]
     camera: Literal["single", "multi"]
     cullFaces: bool

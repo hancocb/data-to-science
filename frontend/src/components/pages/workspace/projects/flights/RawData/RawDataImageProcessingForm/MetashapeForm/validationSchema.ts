@@ -5,7 +5,7 @@ const schema = yup.object({
     .string()
     .oneOf(
       ['low', 'medium', 'high'],
-      'Alignment accuracy must be "low", "medium", or "high"'
+      'Alignment accuracy must be "low", "medium", or "high"',
     )
     .required('Alignment accuracy is required'),
   backend: yup
@@ -16,16 +16,28 @@ const schema = yup.object({
     .string()
     .oneOf(
       ['average', 'disabled', 'min', 'max', 'mosaic'],
-      'Blending mode must be "average", "disabled", "min", "max", or "mosaic"'
+      'Blending mode must be "average", "disabled", "min", "max", or "mosaic"',
     )
     .required('Blending mode is required'),
   buildDepthQuality: yup
     .string()
     .oneOf(
       ['low', 'medium', 'high'],
-      'Build depth quality must be "low", "medium", or "high"'
+      'Build depth quality must be "low", "medium", or "high"',
     )
     .required('Build depth quality is required'),
+  buildDepthFilterMode: yup
+    .string()
+    .oneOf(
+      [
+        'no_filtering',
+        'mild_filtering',
+        'moderate_filtering',
+        'aggressive_filtering',
+      ],
+      'Build depth filter mode must be "No Filtering", "Mild Filtering", "Moderate Filtering", or "Aggressive Filtering"',
+    )
+    .required('Build depth filter mode is required'),
   camera: yup
     .string()
     .oneOf(['single', 'multi'], 'Camera sensors must be single or multi')

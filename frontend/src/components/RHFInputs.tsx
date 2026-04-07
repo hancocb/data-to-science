@@ -14,6 +14,17 @@ interface RadioInput extends Input {
   value: string;
 }
 
+interface SelectOption {
+  value: string;
+  label: string;
+}
+
+interface SelectInput {
+  fieldName: string;
+  label: string;
+  options: SelectOption[];
+}
+
 interface TextInput extends Input {
   placeholder?: string;
 }
@@ -99,6 +110,29 @@ function RadioInput({
   );
 }
 
+function SelectInput({ fieldName, label, options }: SelectInput) {
+  const {
+    register,
+    formState: { errors },
+  } = useFormContext();
+
+  const error = errors && errors[fieldName];
+
+  return (
+    <label htmlFor={fieldName}>
+      <span className="text-sm font-medium inline-block mr-2">{label}:</span>
+      <select id={fieldName} {...register(fieldName)}>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {error && <p className="text-sm text-red-500">{`${error.message}`}</p>}
+    </label>
+  );
+}
+
 function TextInput({ fieldName, label, placeholder, ...props }: TextInput) {
   const {
     register,
@@ -123,4 +157,4 @@ function TextInput({ fieldName, label, placeholder, ...props }: TextInput) {
     </label>
   );
 }
-export { CheckboxInput, NumberInput, RadioInput, TextInput };
+export { CheckboxInput, NumberInput, RadioInput, SelectInput, TextInput };
