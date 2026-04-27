@@ -98,12 +98,14 @@ def test_upload_file_to_s3_uploads_and_returns_url(monkeypatch):
 
 
 def test_delete_s3_objects_noop_on_empty(monkeypatch):
-    fake_client = MagicMock()
-    monkeypatch.setattr(s3_utils, "get_s3_client", lambda: fake_client)
+    """Empty input must short-circuit BEFORE creating the S3 client to avoid
+    unnecessary credential resolution / network access."""
+    fake_get_client = MagicMock()
+    monkeypatch.setattr(s3_utils, "get_s3_client", fake_get_client)
 
     s3_utils.delete_s3_objects([])
 
-    fake_client.delete_objects.assert_not_called()
+    fake_get_client.assert_not_called()
 
 
 def test_delete_s3_objects_batches_over_1000(monkeypatch):

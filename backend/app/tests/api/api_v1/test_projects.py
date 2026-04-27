@@ -1,5 +1,6 @@
 from datetime import date, datetime, timezone
 from typing import Any, Dict
+from unittest.mock import patch
 
 from fastapi import status
 from fastapi.encoders import jsonable_encoder
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session
 from app import crud
 from app.api.deps import get_current_user, get_current_approved_user
 from app.core.config import settings
+from app.tasks.stac_tasks import publish_stac_catalog_task
 from app.tests.conftest import pytest_requires_stac
 from app.schemas.data_product import DataProductCreate
 from app.schemas.project import ProjectUpdate
@@ -29,6 +31,7 @@ from app.tests.utils.team import create_team, random_team_name, random_team_desc
 from app.tests.utils.team_member import create_team_member
 from app.tests.utils.user import create_user, update_regular_user_to_superuser
 from app.tests.utils.utils import get_geojson_feature_collection
+from app.utils.stac.STACCollectionManager import STACCollectionManager
 
 API_URL = f"{settings.API_V1_STR}/projects"
 
@@ -1855,17 +1858,27 @@ def test_unpublish_stac_cleans_up_s3_when_configured(
 def test_unpublish_stac_skips_s3_cleanup_when_not_configured(
     client: TestClient, db: Session, normal_user_access_token: str
 ) -> None:
-    """When S3 is not configured, unpublish must not attempt S3 deletion."""
+    """When S3 is not configured, unpublish must not attempt S3 deletion
+    and must leave any persisted s3_url values untouched."""
     from unittest.mock import patch
     from app.tasks.stac_tasks import publish_stac_catalog_task
+    from app.tests.utils.raw_data import SampleRawData
 
     current_user = get_current_approved_user(
         get_current_user(db, normal_user_access_token)
     )
     project = create_project(db, owner_id=current_user.id)
     flight = create_flight(db, project_id=project.id)
-    SampleDataProduct(db, project=project, flight=flight)
+    dp = SampleDataProduct(db, project=project, flight=flight)
+    raw = SampleRawData(db, project=project, flight=flight)
+
     publish_stac_catalog_task(str(project.id), db=db)
+    _seed_s3_urls_after_publish(db, project, dp, raw)
+
+    seeded_dp_url = crud.data_product.get(db, id=dp.obj.id).s3_url
+    seeded_raw_url = crud.raw_data.get(db, id=raw.obj.id).s3_url
+    assert seeded_dp_url is not None
+    assert seeded_raw_url is not None
 
     with patch(
         "app.api.api_v1.endpoints.stac.is_s3_configured", return_value=False
@@ -1876,6 +1889,8 @@ def test_unpublish_stac_skips_s3_cleanup_when_not_configured(
 
     assert response.status_code == status.HTTP_200_OK
     mock_delete.assert_not_called()
+    assert crud.data_product.get(db, id=dp.obj.id).s3_url == seeded_dp_url
+    assert crud.raw_data.get(db, id=raw.obj.id).s3_url == seeded_raw_url
 
 
 @pytest_requires_stac
@@ -1991,6 +2006,51 @@ def test_publish_calls_s3_upload_helper_when_configured(
 
     # Clean up - remove from STAC catalog
     from app.utils.stac.STACCollectionManager import STACCollectionManager
+
+    scm = STACCollectionManager(collection_id=str(project.id))
+    scm.remove_from_catalog()
+
+
+@pytest_requires_stac
+def test_publish_writes_s3_hrefs_into_stac_cache(
+    client: TestClient, db: Session, normal_user_access_token: str, monkeypatch
+) -> None:
+    """End-to-end: when S3 is configured, the cached stac.json served via /stac-cache
+    contains S3 asset hrefs and the data product row has its s3_url persisted.
+    Mocks only at the upload boundary so the real rewrite helper runs."""
+    current_user = get_current_approved_user(
+        get_current_user(db, normal_user_access_token)
+    )
+    project = create_project(db, owner_id=current_user.id)
+    flight = create_flight(db, project_id=project.id)
+    dp = SampleDataProduct(db, project=project, flight=flight)
+
+    monkeypatch.setattr(settings, "AWS_S3_BUCKET_NAME", "my-bucket")
+    monkeypatch.setattr(settings, "AWS_S3_REGION", "us-east-1")
+
+    fake_url = "https://my-bucket.s3.us-east-1.amazonaws.com/d2s/host/file.tif"
+    with patch(
+        "app.tasks.stac_tasks.is_s3_configured", return_value=True
+    ), patch(
+        "app.tasks.stac_tasks.upload_file_to_s3", return_value=fake_url
+    ):
+        publish_stac_catalog_task(str(project.id), db=db)
+
+    response = client.get(f"{API_URL}/{project.id}/stac-cache")
+    assert response.status_code == status.HTTP_200_OK
+    cache_data = response.json()
+    asset_hrefs = [
+        asset["href"]
+        for item_dict in cache_data.get("items", [])
+        for asset in item_dict.get("assets", {}).values()
+        if isinstance(asset, dict) and "href" in asset
+    ]
+    assert fake_url in asset_hrefs, (
+        f"Expected S3 URL {fake_url} in cached asset hrefs, got: {asset_hrefs}"
+    )
+
+    refreshed_dp = crud.data_product.get(db, id=dp.obj.id)
+    assert refreshed_dp.s3_url == fake_url
 
     scm = STACCollectionManager(collection_id=str(project.id))
     scm.remove_from_catalog()

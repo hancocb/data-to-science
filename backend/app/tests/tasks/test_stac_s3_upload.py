@@ -2,7 +2,6 @@ import os
 from uuid import uuid4
 from unittest.mock import patch
 
-import pytest
 from sqlalchemy.orm import Session
 
 from app import crud
@@ -101,10 +100,11 @@ def test_upload_to_s3_rewrites_external_viewer_link(db: Session, monkeypatch):
 
     items, flights = _generate_items(db, project.id)
     item = items[0]
-    # STACGenerator should have added an external link if EXTERNAL_VIEWER_URL is set
     external_links = [link for link in item.links if link.rel == "external"]
-    if not external_links:
-        pytest.skip("STACGenerator did not add an external link for this item")
+    assert external_links, (
+        "STACGenerator must add an external link when EXTERNAL_VIEWER_URL is set; "
+        "without one, the rewrite branch under test is dead code."
+    )
 
     fake_url = "https://my-bucket.s3.us-east-1.amazonaws.com/d2s/host/file.tif"
     with patch("app.tasks.stac_tasks.upload_file_to_s3", return_value=fake_url):
