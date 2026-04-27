@@ -10,18 +10,52 @@ from sqlalchemy.orm import Session
 
 from app import crud, models, schemas
 from app.api import deps
-from app.utils.stac.STACCollectionManager import STACCollectionManager
 from app.core.config import settings
 from app.tasks.stac_tasks import (
     generate_stac_preview,
     publish_stac_catalog,
     get_stac_cache_path,
 )
+from app.utils.s3 import delete_s3_objects, is_s3_configured, parse_s3_key_from_url
+from app.utils.stac.STACCollectionManager import STACCollectionManager
 
 
 logger = logging.getLogger("__name__")
 
 router = APIRouter()
+
+
+def _cleanup_s3_for_project(db: Session, project_id: UUID) -> None:
+    """Delete S3 copies of data products and raw data for a project, then clear s3_url columns."""
+    s3_keys = []
+
+    # Collect S3 keys from data products
+    data_products = crud.data_product.get_data_products_with_s3_urls_for_project(
+        db, project_id=project_id
+    )
+    for dp in data_products:
+        try:
+            s3_keys.append(parse_s3_key_from_url(dp.s3_url))
+        except ValueError:
+            logger.warning(f"Could not parse S3 key from URL: {dp.s3_url}")
+
+    # Collect S3 keys from raw data
+    raw_data_list = crud.raw_data.get_raw_data_with_s3_urls_for_project(
+        db, project_id=project_id
+    )
+    for rd in raw_data_list:
+        try:
+            s3_keys.append(parse_s3_key_from_url(rd.s3_url))
+        except ValueError:
+            logger.warning(f"Could not parse S3 key from URL: {rd.s3_url}")
+
+    # Delete from S3
+    if s3_keys:
+        delete_s3_objects(s3_keys)
+
+    # Clear s3_url columns in DB
+    crud.data_product.clear_s3_urls_for_project(db, project_id=project_id)
+    crud.raw_data.clear_s3_urls_for_project(db, project_id=project_id)
 
 
 @router.get(
@@ -236,6 +270,23 @@ def remove_project_from_stac_catalog(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to remove project from STAC catalog. Please try again later.",
         )
+
+    # Delete S3 copies of published data (best-effort, don't block unpublish)
+    if is_s3_configured():
+        try:
+            _cleanup_s3_for_project(db, project_id)
+        except Exception:
+            logger.exception(
+                f"Failed to clean up S3 for project {project_id}"
+            )
+
+    # Delete STAC cache to prevent stale URLs on re-publish
+    try:
+        cache_path = get_stac_cache_path(project_id)
+        if cache_path.exists():
+            cache_path.unlink()
+    except Exception:
+        logger.exception(f"Failed to delete STAC cache for project {project_id}")
 
     # Update the project to unpublished and change all data products to private
     updated_project = crud.project.update_project_visibility(

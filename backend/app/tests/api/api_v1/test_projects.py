@@ -1796,3 +1796,201 @@ def test_stac_with_license_using_task(
 
     scm = STACCollectionManager(collection_id=str(project.id))
     scm.remove_from_catalog()
+
+
+def _seed_s3_urls_after_publish(db, project, dp, raw=None):
+    """Stamp s3_url on a project's data product (and optional raw data) so the
+    unpublish cleanup path has something to find."""
+    crud.data_product.update_s3_url(
+        db,
+        data_product_id=dp.obj.id,
+        s3_url=f"https://my-bucket.s3.us-east-1.amazonaws.com/d2s/host/dp/{dp.obj.id}.tif",
+    )
+    if raw is not None:
+        crud.raw_data.update_s3_url(
+            db,
+            raw_data_id=raw.obj.id,
+            s3_url=f"https://my-bucket.s3.us-east-1.amazonaws.com/d2s/host/raw/{raw.obj.id}.zip",
+        )
+
+
+@pytest_requires_stac
+def test_unpublish_stac_cleans_up_s3_when_configured(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """When S3 is configured, unpublishing should delete uploaded objects and clear s3_url columns."""
+    from unittest.mock import patch
+    from app.tasks.stac_tasks import publish_stac_catalog_task
+    from app.tests.utils.raw_data import SampleRawData
+
+    current_user = get_current_approved_user(
+        get_current_user(db, normal_user_access_token)
+    )
+    project = create_project(db, owner_id=current_user.id)
+    flight = create_flight(db, project_id=project.id)
+    dp = SampleDataProduct(db, project=project, flight=flight)
+    raw = SampleRawData(db, project=project, flight=flight)
+
+    publish_stac_catalog_task(str(project.id), db=db)
+    _seed_s3_urls_after_publish(db, project, dp, raw)
+
+    with patch(
+        "app.api.api_v1.endpoints.stac.is_s3_configured", return_value=True
+    ), patch(
+        "app.api.api_v1.endpoints.stac.delete_s3_objects"
+    ) as mock_delete:
+        response = client.delete(f"{API_URL}/{project.id}/delete-stac")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert mock_delete.call_count == 1
+    deleted_keys = mock_delete.call_args[0][0]
+    assert len(deleted_keys) == 2
+    assert any(str(dp.obj.id) in key for key in deleted_keys)
+    assert any(str(raw.obj.id) in key for key in deleted_keys)
+    assert crud.data_product.get(db, id=dp.obj.id).s3_url is None
+    assert crud.raw_data.get(db, id=raw.obj.id).s3_url is None
+
+
+@pytest_requires_stac
+def test_unpublish_stac_skips_s3_cleanup_when_not_configured(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """When S3 is not configured, unpublish must not attempt S3 deletion."""
+    from unittest.mock import patch
+    from app.tasks.stac_tasks import publish_stac_catalog_task
+
+    current_user = get_current_approved_user(
+        get_current_user(db, normal_user_access_token)
+    )
+    project = create_project(db, owner_id=current_user.id)
+    flight = create_flight(db, project_id=project.id)
+    SampleDataProduct(db, project=project, flight=flight)
+    publish_stac_catalog_task(str(project.id), db=db)
+
+    with patch(
+        "app.api.api_v1.endpoints.stac.is_s3_configured", return_value=False
+    ), patch(
+        "app.api.api_v1.endpoints.stac.delete_s3_objects"
+    ) as mock_delete:
+        response = client.delete(f"{API_URL}/{project.id}/delete-stac")
+
+    assert response.status_code == status.HTTP_200_OK
+    mock_delete.assert_not_called()
+
+
+@pytest_requires_stac
+def test_unpublish_stac_deletes_local_stac_cache(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """The local stac.json cache should be removed so re-publish doesn't see stale URLs."""
+    from unittest.mock import patch
+    from app.tasks.stac_tasks import get_stac_cache_path, publish_stac_catalog_task
+
+    current_user = get_current_approved_user(
+        get_current_user(db, normal_user_access_token)
+    )
+    project = create_project(db, owner_id=current_user.id)
+    flight = create_flight(db, project_id=project.id)
+    SampleDataProduct(db, project=project, flight=flight)
+    publish_stac_catalog_task(str(project.id), db=db)
+
+    cache_path = get_stac_cache_path(project.id)
+    assert cache_path.exists()
+
+    with patch("app.api.api_v1.endpoints.stac.is_s3_configured", return_value=False):
+        response = client.delete(f"{API_URL}/{project.id}/delete-stac")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert not cache_path.exists()
+
+
+@pytest_requires_stac
+def test_unpublish_stac_succeeds_when_s3_cleanup_raises(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """S3 cleanup is best-effort — a failure must not break unpublish."""
+    from unittest.mock import patch
+    from app.tasks.stac_tasks import publish_stac_catalog_task
+
+    current_user = get_current_approved_user(
+        get_current_user(db, normal_user_access_token)
+    )
+    project = create_project(db, owner_id=current_user.id)
+    flight = create_flight(db, project_id=project.id)
+    dp = SampleDataProduct(db, project=project, flight=flight)
+    publish_stac_catalog_task(str(project.id), db=db)
+    _seed_s3_urls_after_publish(db, project, dp)
+
+    with patch(
+        "app.api.api_v1.endpoints.stac.is_s3_configured", return_value=True
+    ), patch(
+        "app.api.api_v1.endpoints.stac._cleanup_s3_for_project",
+        side_effect=RuntimeError("s3 down"),
+    ):
+        response = client.delete(f"{API_URL}/{project.id}/delete-stac")
+
+    assert response.status_code == status.HTTP_200_OK
+    refreshed_project = crud.project.get(db, id=project.id)
+    assert refreshed_project.is_published is False
+
+
+@pytest_requires_stac
+def test_publish_does_not_call_s3_when_not_configured(
+    db: Session, normal_user_access_token: str
+) -> None:
+    """Publish must skip the S3 upload helper when S3 is not configured."""
+    from unittest.mock import patch
+    from app.tasks.stac_tasks import publish_stac_catalog_task
+
+    current_user = get_current_approved_user(
+        get_current_user(db, normal_user_access_token)
+    )
+    project = create_project(db, owner_id=current_user.id)
+    flight = create_flight(db, project_id=project.id)
+    SampleDataProduct(db, project=project, flight=flight)
+
+    with patch(
+        "app.tasks.stac_tasks.is_s3_configured", return_value=False
+    ), patch(
+        "app.tasks.stac_tasks._upload_to_s3_and_rewrite_hrefs"
+    ) as mock_upload:
+        publish_stac_catalog_task(str(project.id), db=db)
+
+    mock_upload.assert_not_called()
+
+    # Clean up - remove from STAC catalog
+    from app.utils.stac.STACCollectionManager import STACCollectionManager
+
+    scm = STACCollectionManager(collection_id=str(project.id))
+    scm.remove_from_catalog()
+
+
+@pytest_requires_stac
+def test_publish_calls_s3_upload_helper_when_configured(
+    db: Session, normal_user_access_token: str
+) -> None:
+    """Publish must invoke the S3 upload helper when S3 is configured."""
+    from unittest.mock import patch
+    from app.tasks.stac_tasks import publish_stac_catalog_task
+
+    current_user = get_current_approved_user(
+        get_current_user(db, normal_user_access_token)
+    )
+    project = create_project(db, owner_id=current_user.id)
+    flight = create_flight(db, project_id=project.id)
+    SampleDataProduct(db, project=project, flight=flight)
+
+    with patch(
+        "app.tasks.stac_tasks.is_s3_configured", return_value=True
+    ), patch(
+        "app.tasks.stac_tasks._upload_to_s3_and_rewrite_hrefs", return_value=[]
+    ) as mock_upload:
+        publish_stac_catalog_task(str(project.id), db=db)
+
+    mock_upload.assert_called_once()
+
+    # Clean up - remove from STAC catalog
+    from app.utils.stac.STACCollectionManager import STACCollectionManager
+
+    scm = STACCollectionManager(collection_id=str(project.id))
+    scm.remove_from_catalog()
