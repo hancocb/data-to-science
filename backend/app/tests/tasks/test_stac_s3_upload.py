@@ -210,7 +210,9 @@ def test_rollback_deletes_uploaded_keys_and_clears_columns(db: Session):
     )
     crud.raw_data.update_s3_url(db, raw_data_id=raw.obj.id, s3_url="https://x/raw")
 
-    with patch("app.tasks.stac_tasks.delete_s3_objects") as mock_delete:
+    with patch(
+        "app.tasks.stac_tasks.delete_s3_objects", return_value=True
+    ) as mock_delete:
         _rollback_s3_uploads(db, project.id, ["k1", "k2"])
 
     mock_delete.assert_called_once_with(["k1", "k2"])

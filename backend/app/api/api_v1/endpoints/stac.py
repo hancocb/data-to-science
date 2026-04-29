@@ -20,13 +20,27 @@ from app.utils.s3 import delete_s3_objects, is_s3_configured, parse_s3_key_from_
 from app.utils.stac.STACCollectionManager import STACCollectionManager
 
 
-logger = logging.getLogger("__name__")
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
+class S3CleanupError(Exception):
+    """Raised when the S3 cleanup step of unpublish does not fully succeed.
+
+    The endpoint converts this into a 503 with a generic message so the user
+    can retry once S3 connectivity is restored. The s3_url columns are left
+    intact so orphaned objects remain trackable.
+    """
+
+
 def _cleanup_s3_for_project(db: Session, project_id: UUID) -> None:
-    """Delete S3 copies of data products and raw data for a project, then clear s3_url columns."""
+    """Delete S3 copies of data products and raw data for a project, then clear s3_url columns.
+
+    Raises S3CleanupError if the S3 delete does not fully succeed. The s3_url
+    columns are preserved in that case so the orphaned objects can be cleaned
+    up on a future retry.
+    """
     s3_keys = []
 
     # Collect S3 keys from data products
@@ -49,9 +63,11 @@ def _cleanup_s3_for_project(db: Session, project_id: UUID) -> None:
         except ValueError:
             logger.warning(f"Could not parse S3 key from URL: {rd.s3_url}")
 
-    # Delete from S3
-    if s3_keys:
-        delete_s3_objects(s3_keys)
+    # Delete from S3; preserve s3_url columns if delete fails so we can retry
+    if s3_keys and not delete_s3_objects(s3_keys):
+        raise S3CleanupError(
+            f"S3 cleanup did not fully succeed for project {project_id}"
+        )
 
     # Clear s3_url columns in DB
     crud.data_product.clear_s3_urls_for_project(db, project_id=project_id)
@@ -259,6 +275,23 @@ def remove_project_from_stac_catalog(
             detail="Project not found in STAC catalog",
         )
 
+    # Delete S3 copies of published data BEFORE catalog removal so a failure
+    # leaves the project fully published and retriable rather than half-unpublished.
+    if is_s3_configured():
+        try:
+            _cleanup_s3_for_project(db, project_id)
+        except Exception:
+            logger.exception(
+                f"Failed to clean up S3 for project {project_id}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Could not clean up published data from the configured S3 "
+                    "bucket. Please try again later."
+                ),
+            )
+
     # Remove project from STAC catalog
     try:
         scm.remove_from_catalog()
@@ -270,15 +303,6 @@ def remove_project_from_stac_catalog(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to remove project from STAC catalog. Please try again later.",
         )
-
-    # Delete S3 copies of published data (best-effort, don't block unpublish)
-    if is_s3_configured():
-        try:
-            _cleanup_s3_for_project(db, project_id)
-        except Exception:
-            logger.exception(
-                f"Failed to clean up S3 for project {project_id}"
-            )
 
     # Delete STAC cache to prevent stale URLs on re-publish
     try:

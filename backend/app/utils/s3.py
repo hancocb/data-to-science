@@ -5,7 +5,7 @@ from typing import List
 from urllib.parse import urlparse
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from app.core.config import settings
 
@@ -65,31 +65,50 @@ def build_s3_url(s3_key: str) -> str:
     return f"https://{bucket}.s3.{region}.amazonaws.com/{s3_key}"
 
 
+class S3UploadError(Exception):
+    """Raised when an S3 upload fails. The message is safe to surface to users
+    (no bucket names, file paths, or AWS error codes); the original exception
+    is still logged server-side via logger.exception."""
+
+
 def upload_file_to_s3(filepath: str, s3_key: str) -> str:
     """Upload a file to S3 and return the S3 URL.
 
     Uses boto3's upload_file which handles multipart uploads automatically
     for files larger than 8MB.
 
-    Raises on failure so the caller can handle rollback.
+    Raises S3UploadError with a generic message on boto3 failure so the
+    caller can handle rollback without leaking AWS details to users.
     """
     client = get_s3_client()
-    client.upload_file(filepath, settings.AWS_S3_BUCKET_NAME, s3_key)
+    try:
+        client.upload_file(filepath, settings.AWS_S3_BUCKET_NAME, s3_key)
+    except (ClientError, BotoCoreError):
+        logger.exception(
+            f"Failed to upload {filepath} to s3://{settings.AWS_S3_BUCKET_NAME}/{s3_key}"
+        )
+        raise S3UploadError(
+            "Could not upload data to the configured S3 bucket. "
+            "Please contact an administrator."
+        )
     return build_s3_url(s3_key)
 
 
-def delete_s3_objects(s3_keys: List[str]) -> None:
+def delete_s3_objects(s3_keys: List[str]) -> bool:
     """Delete multiple objects from the S3 bucket.
 
-    Best-effort: logs warnings on failures but does not raise.
+    Returns True if every key in every batch was deleted successfully, False
+    otherwise. Failures are logged; the function does not raise so callers can
+    decide whether to preserve database state for retry.
     Handles batching (S3 delete_objects supports up to 1000 keys per call).
     """
     if not s3_keys:
-        return
+        return True
 
     client = get_s3_client()
     bucket = settings.AWS_S3_BUCKET_NAME
 
+    all_succeeded = True
     # Process in batches of 1000 (S3 API limit)
     for i in range(0, len(s3_keys), 1000):
         batch = s3_keys[i : i + 1000]
@@ -100,13 +119,17 @@ def delete_s3_objects(s3_keys: List[str]) -> None:
             )
             errors = response.get("Errors", [])
             if errors:
+                all_succeeded = False
                 for error in errors:
                     logger.warning(
                         f"Failed to delete S3 object {error['Key']}: "
                         f"{error['Code']} - {error['Message']}"
                     )
-        except ClientError:
+        except (ClientError, BotoCoreError):
+            all_succeeded = False
             logger.exception(f"Failed to delete S3 objects batch starting at index {i}")
+
+    return all_succeeded
 
 
 def parse_s3_key_from_url(s3_url: str) -> str:

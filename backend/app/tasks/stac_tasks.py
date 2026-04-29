@@ -170,10 +170,18 @@ def _upload_to_s3_and_rewrite_hrefs(
 
 
 def _rollback_s3_uploads(db: Session, project_id: UUID, uploaded_s3_keys: List[str]) -> None:
-    """Clean up S3 uploads and DB records on publish failure."""
+    """Clean up S3 uploads and DB records on publish failure.
+
+    Preserves s3_url columns when the S3 delete does not fully succeed so the
+    orphaned objects can be cleaned up on a future retry.
+    """
     try:
-        if uploaded_s3_keys:
-            delete_s3_objects(uploaded_s3_keys)
+        if uploaded_s3_keys and not delete_s3_objects(uploaded_s3_keys):
+            logger.error(
+                f"S3 rollback did not fully succeed for project {project_id}; "
+                f"preserving s3_url columns for retry"
+            )
+            return
         crud.data_product.clear_s3_urls_for_project(db, project_id=project_id)
         crud.raw_data.clear_s3_urls_for_project(db, project_id=project_id)
     except Exception:

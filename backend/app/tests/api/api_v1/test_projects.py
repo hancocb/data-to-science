@@ -27,6 +27,7 @@ from app.tests.utils.project import (
     random_harvest_date,
 )
 from app.tests.utils.project_member import create_project_member
+from app.tests.utils.raw_data import SampleRawData
 from app.tests.utils.team import create_team, random_team_name, random_team_description
 from app.tests.utils.team_member import create_team_member
 from app.tests.utils.user import create_user, update_regular_user_to_superuser
@@ -1840,7 +1841,7 @@ def test_unpublish_stac_cleans_up_s3_when_configured(
     with patch(
         "app.api.api_v1.endpoints.stac.is_s3_configured", return_value=True
     ), patch(
-        "app.api.api_v1.endpoints.stac.delete_s3_objects"
+        "app.api.api_v1.endpoints.stac.delete_s3_objects", return_value=True
     ) as mock_delete:
         response = client.delete(f"{API_URL}/{project.id}/delete-stac")
 
@@ -1852,6 +1853,93 @@ def test_unpublish_stac_cleans_up_s3_when_configured(
     assert any(str(raw.obj.id) in key for key in deleted_keys)
     assert crud.data_product.get(db, id=dp.obj.id).s3_url is None
     assert crud.raw_data.get(db, id=raw.obj.id).s3_url is None
+
+
+@pytest_requires_stac
+def test_unpublish_stac_aborts_when_s3_delete_fails(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """If S3 delete fails, the unpublish must abort with 503: the catalog stays
+    intact, the project stays published, and s3_url columns are preserved so
+    the user can retry once S3 is reachable."""
+    current_user = get_current_approved_user(
+        get_current_user(db, normal_user_access_token)
+    )
+    project = create_project(db, owner_id=current_user.id)
+    flight = create_flight(db, project_id=project.id)
+    dp = SampleDataProduct(db, project=project, flight=flight)
+    raw = SampleRawData(db, project=project, flight=flight)
+
+    publish_stac_catalog_task(str(project.id), db=db)
+    _seed_s3_urls_after_publish(db, project, dp, raw)
+
+    seeded_dp_url = crud.data_product.get(db, id=dp.obj.id).s3_url
+    seeded_raw_url = crud.raw_data.get(db, id=raw.obj.id).s3_url
+
+    with patch(
+        "app.api.api_v1.endpoints.stac.is_s3_configured", return_value=True
+    ), patch(
+        "app.api.api_v1.endpoints.stac.delete_s3_objects", return_value=False
+    ) as mock_delete, patch(
+        "app.api.api_v1.endpoints.stac.STACCollectionManager.remove_from_catalog"
+    ) as mock_remove:
+        response = client.delete(f"{API_URL}/{project.id}/delete-stac")
+
+    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    assert mock_delete.call_count == 1
+    # Catalog removal must NOT have run — we abort first so retry works
+    mock_remove.assert_not_called()
+    # s3_url columns must survive so the orphaned objects remain trackable
+    assert crud.data_product.get(db, id=dp.obj.id).s3_url == seeded_dp_url
+    assert crud.raw_data.get(db, id=raw.obj.id).s3_url == seeded_raw_url
+    # Project must still be marked published
+    refreshed_project = crud.project.get(db, id=project.id)
+    assert refreshed_project.is_published is True
+    # Generic message — no bucket/path/AWS detail
+    body = response.json()
+    assert "S3" in body["detail"] or "s3" in body["detail"]
+    assert "bucket" in body["detail"].lower()
+    # The detail must NOT include any keys, paths, or specific error codes
+    assert "NoSuchBucket" not in body["detail"]
+    for url in (seeded_dp_url, seeded_raw_url):
+        assert url not in body["detail"]
+
+
+@pytest_requires_stac
+def test_unpublish_stac_post_cleanup_state_unchanged_when_s3_fails(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """A failed unpublish must be retriable: the second attempt (with S3 working)
+    should clean up successfully and complete the unpublish."""
+    current_user = get_current_approved_user(
+        get_current_user(db, normal_user_access_token)
+    )
+    project = create_project(db, owner_id=current_user.id)
+    flight = create_flight(db, project_id=project.id)
+    dp = SampleDataProduct(db, project=project, flight=flight)
+    publish_stac_catalog_task(str(project.id), db=db)
+    _seed_s3_urls_after_publish(db, project, dp)
+
+    # First attempt: S3 broken — abort, leave state intact
+    with patch(
+        "app.api.api_v1.endpoints.stac.is_s3_configured", return_value=True
+    ), patch(
+        "app.api.api_v1.endpoints.stac.delete_s3_objects", return_value=False
+    ):
+        first = client.delete(f"{API_URL}/{project.id}/delete-stac")
+    assert first.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    assert crud.project.get(db, id=project.id).is_published is True
+
+    # Second attempt: S3 fixed — full unpublish succeeds
+    with patch(
+        "app.api.api_v1.endpoints.stac.is_s3_configured", return_value=True
+    ), patch(
+        "app.api.api_v1.endpoints.stac.delete_s3_objects", return_value=True
+    ):
+        second = client.delete(f"{API_URL}/{project.id}/delete-stac")
+    assert second.status_code == status.HTTP_200_OK
+    assert crud.project.get(db, id=project.id).is_published is False
+    assert crud.data_product.get(db, id=dp.obj.id).s3_url is None
 
 
 @pytest_requires_stac
@@ -1920,13 +2008,11 @@ def test_unpublish_stac_deletes_local_stac_cache(
 
 
 @pytest_requires_stac
-def test_unpublish_stac_succeeds_when_s3_cleanup_raises(
+def test_unpublish_stac_aborts_when_s3_cleanup_raises(
     client: TestClient, db: Session, normal_user_access_token: str
 ) -> None:
-    """S3 cleanup is best-effort — a failure must not break unpublish."""
-    from unittest.mock import patch
-    from app.tasks.stac_tasks import publish_stac_catalog_task
-
+    """Any unexpected exception from S3 cleanup must abort the unpublish with a
+    503 — the project stays published so the user can retry."""
     current_user = get_current_approved_user(
         get_current_user(db, normal_user_access_token)
     )
@@ -1941,12 +2027,15 @@ def test_unpublish_stac_succeeds_when_s3_cleanup_raises(
     ), patch(
         "app.api.api_v1.endpoints.stac._cleanup_s3_for_project",
         side_effect=RuntimeError("s3 down"),
-    ):
+    ), patch(
+        "app.api.api_v1.endpoints.stac.STACCollectionManager.remove_from_catalog"
+    ) as mock_remove:
         response = client.delete(f"{API_URL}/{project.id}/delete-stac")
 
-    assert response.status_code == status.HTTP_200_OK
+    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    mock_remove.assert_not_called()
     refreshed_project = crud.project.get(db, id=project.id)
-    assert refreshed_project.is_published is False
+    assert refreshed_project.is_published is True
 
 
 @pytest_requires_stac
