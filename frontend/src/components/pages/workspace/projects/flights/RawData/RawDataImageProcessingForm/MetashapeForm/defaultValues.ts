@@ -5,6 +5,7 @@ const defaultValues: MetashapeSettings = {
   backend: 'metashape',
   blendingMode: 'mosaic',
   buildDepthQuality: 'medium',
+  buildDepthFilterMode: 'mild_filtering',
   camera: 'single',
   disclaimer: false,
   exportDEM: true,

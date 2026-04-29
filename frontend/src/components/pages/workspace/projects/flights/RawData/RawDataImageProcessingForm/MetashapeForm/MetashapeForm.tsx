@@ -7,6 +7,7 @@ import {
   CheckboxInput,
   NumberInput,
   RadioInput,
+  SelectInput,
 } from '../../../../../../../RHFInputs';
 
 import {
@@ -174,6 +175,26 @@ export default function MetashapeForm({
                       </p>
                     )}
                 </div>
+                {showAdvancedSettings && (
+                  <div className="mt-4">
+                    <SelectInput
+                      fieldName="buildDepthFilterMode"
+                      label="Filter Mode"
+                      options={[
+                        { value: 'no_filtering', label: 'No Filtering' },
+                        { value: 'mild_filtering', label: 'Mild Filtering' },
+                        {
+                          value: 'moderate_filtering',
+                          label: 'Moderate Filtering',
+                        },
+                        {
+                          value: 'aggressive_filtering',
+                          label: 'Aggressive Filtering',
+                        },
+                      ]}
+                    />
+                  </div>
+                )}
               </fieldset>
 
               {/* Advanced Settings - Conditionally Rendered */}

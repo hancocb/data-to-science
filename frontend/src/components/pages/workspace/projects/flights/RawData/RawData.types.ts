@@ -1,5 +1,10 @@
 type BlendingModeType = 'average' | 'disabled' | 'min' | 'max' | 'mosaic';
 type CameraType = 'single' | 'multi';
+type FilterMode =
+  | 'no_filtering'
+  | 'mild_filtering'
+  | 'moderate_filtering'
+  | 'aggressive_filtering';
 type QualityType = 'low' | 'medium' | 'high';
 
 export interface MetashapeSettings {
@@ -7,6 +12,7 @@ export interface MetashapeSettings {
   backend: 'metashape';
   blendingMode: BlendingModeType;
   buildDepthQuality: QualityType;
+  buildDepthFilterMode: FilterMode;
   camera: CameraType;
   cullFaces: boolean;
   disclaimer: boolean;
