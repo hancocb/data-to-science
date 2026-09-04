@@ -14,12 +14,17 @@ from app.core import security
 from app.core.exceptions import PermissionDenied, ResourceNotFound
 from app.schemas import TUSDHook, UploadUpdate
 from app.schemas.role import Role
+from app.utils.tusd.extensions import (
+    UnsupportedUploadExtension,
+    validate_upload_extension,
+)
 from app.utils.tusd.post_processing import (
     process_annotation_attachment_uploaded_to_tusd,
     process_data_product_uploaded_to_tusd,
     process_indoor_data_uploaded_to_tusd,
     process_raw_data_uploaded_to_tusd,
 )
+from app.utils.tusd.storage import remove_upload_from_tusd
 
 router = APIRouter()
 
@@ -138,9 +143,28 @@ def _get_or_create_upload_for_post_finish(
     return created_upload, True
 
 
+def _reject_upload(status_code: int, body: str) -> dict[str, Any]:
+    """Build a response telling tusd to refuse the upload.
+
+    Pre-create is the only blocking hook, so rejecting here is what keeps an
+    upload tusd would otherwise store, and never remove, off the tus server.
+
+    Args:
+        status_code: Status code tusd returns to the client
+        body: Message tusd returns to the client
+
+    Returns:
+        Dictionary rejecting the upload
+    """
+    return {
+        "RejectUpload": True,
+        "HTTPResponse": {"StatusCode": status_code, "Body": body},
+    }
+
+
 def _handle_pre_create_authorization(
     payload: TUSDHook, db: Session, project_id: UUID
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Handle pre-create hook authorization for UAS projects.
 
     Args:
@@ -170,13 +194,15 @@ def _handle_pre_create_authorization(
     x_data_type = payload.Event.HTTPRequest.Header.X_Data_Type
     data_type = x_data_type[0] if x_data_type and len(x_data_type) == 1 else None
 
-    _reject_upload = {
-        "RejectUpload": True,
-        "HTTPResponse": {
-            "StatusCode": 403,
-            "Body": "Permission denied",
-        },
-    }
+    # reject an unsupported file before tusd stores any of it
+    try:
+        validate_upload_extension(
+            Path(payload.Event.Upload.MetaData.filename), data_type=data_type
+        )
+    except UnsupportedUploadExtension as exc:
+        return _reject_upload(status.HTTP_400_BAD_REQUEST, str(exc))
+
+    permission_denied = _reject_upload(status.HTTP_403_FORBIDDEN, "Permission denied")
 
     if data_type == "annotation_attachment":
         # Annotation attachments: viewers who created the annotation are
@@ -185,7 +211,7 @@ def _handle_pre_create_authorization(
             db, user_id=approved_user.id, project_id=project_id, permission="r"
         )
         if project_response.get("response_code") != status.HTTP_200_OK:
-            return _reject_upload
+            return permission_denied
 
         # Managers and owners can always upload
         project_obj = project_response["result"]
@@ -195,10 +221,10 @@ def _handle_pre_create_authorization(
         # Viewers must be the annotation creator
         x_annotation_id = payload.Event.HTTPRequest.Header.X_Annotation_ID
         if not x_annotation_id or len(x_annotation_id) != 1:
-            return _reject_upload
+            return permission_denied
         annotation = crud.annotation.get(db, id=x_annotation_id[0])
         if not annotation or annotation.created_by_id != approved_user.id:
-            return _reject_upload
+            return permission_denied
 
         return {"status": "authorized"}
 
@@ -216,7 +242,7 @@ def _handle_pre_create_authorization(
 
 def _handle_pre_create_authorization_indoor(
     payload: TUSDHook, db: Session, indoor_project_id: UUID
-) -> dict[str, str]:
+) -> dict[str, Any]:
     """Handle pre-create hook authorization for indoor projects.
 
     Args:
@@ -242,6 +268,14 @@ def _handle_pre_create_authorization_indoor(
 
     # Validate token and load user
     approved_user = _get_approved_user_from_token(db, access_token_value)
+
+    # reject an unsupported file before tusd stores any of it
+    try:
+        validate_upload_extension(
+            Path(payload.Event.Upload.MetaData.filename), is_indoor=True
+        )
+    except UnsupportedUploadExtension as exc:
+        return _reject_upload(status.HTTP_400_BAD_REQUEST, str(exc))
 
     # Verify user has manager or owner access to indoor project
     try:
@@ -340,6 +374,17 @@ def _update_upload_record_to_finished(
     crud.upload.update(db, db_obj=existing_upload, obj_in=upload_update_in)
 
 
+def _discard_finished_upload(payload: TUSDHook) -> None:
+    """Remove a completed upload that will never be processed.
+
+    Args:
+        payload (TUSDHook): TUSD hook payload.
+    """
+    storage = payload.Event.Upload.Storage
+    if storage is not None:
+        remove_upload_from_tusd(storage.Path, storage.InfoPath)
+
+
 @router.post("", status_code=status.HTTP_202_ACCEPTED)
 def handle_tusd_http_hooks(
     payload: TUSDHook,
@@ -378,20 +423,33 @@ def handle_tusd_http_hooks(
     if payload.Type == "post-receive":
         return {"status": "ok"}
 
-    # Determine if this is an indoor project or UAS project
-    if x_indoor_project_id is not None and len(x_indoor_project_id) == 1:
-        return _handle_indoor_project_hooks(
-            payload,
-            db,
-            upload_id,
-            existing_upload,
-            is_uploading,
-            x_indoor_project_id[0],
-        )
-    else:
-        return _handle_uas_project_hooks(
-            payload, db, upload_id, existing_upload, is_uploading
-        )
+    def dispatch() -> Any:
+        # Determine if this is an indoor project or UAS project
+        if x_indoor_project_id is not None and len(x_indoor_project_id) == 1:
+            return _handle_indoor_project_hooks(
+                payload,
+                db,
+                upload_id,
+                existing_upload,
+                is_uploading,
+                x_indoor_project_id[0],
+            )
+        else:
+            return _handle_uas_project_hooks(
+                payload, db, upload_id, existing_upload, is_uploading
+            )
+
+    if payload.Type != "post-finish":
+        return dispatch()
+
+    try:
+        return dispatch()
+    except HTTPException:
+        # post-finish is not a blocking hook, so tusd only logs the rejection
+        # and keeps the upload. The upload is complete and will not be
+        # processed, so nothing is left to resume and it can be removed.
+        _discard_finished_upload(payload)
+        raise
 
 
 def _handle_uas_project_hooks(
@@ -480,6 +538,7 @@ def _handle_uas_project_hooks(
                 flight_id=flight.id,
                 data_product_id=x_data_product_id[0],
                 annotation_id=x_annotation_id[0],
+                info_path=storage.InfoPath,
             )
             # Update upload record if it exists (best-effort bookkeeping)
             if existing_upload:

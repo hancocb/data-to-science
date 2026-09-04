@@ -12,11 +12,7 @@ from sqlalchemy.orm import Session
 
 from app import crud, schemas
 from app.api.api_v1.endpoints.raw_data import get_raw_data_dir
-from app.api.utils import (
-    get_data_product_dir,
-    get_file_extension,
-    get_indoor_project_data_dir,
-)
+from app.api.utils import get_data_product_dir, get_indoor_project_data_dir
 from app.core.config import settings
 from app.schemas.job import State, Status
 from app.tasks.post_upload_tasks import generate_point_cloud_preview
@@ -29,22 +25,16 @@ from app.tasks.upload_tasks import (
     upload_point_cloud,
     upload_raw_data,
 )
+from app.utils.tusd.extensions import (
+    UnsupportedUploadExtension,
+    validate_annotation_attachment_extension,
+    validate_data_product_extension,
+    validate_indoor_data_extension,
+    validate_raw_data_extension,
+)
+from app.utils.tusd.storage import remove_upload_from_tusd
 
 logger = logging.getLogger("__name__")
-
-SUPPORTED_EXTENSIONS = {
-    ".tif",
-    ".las",
-    ".laz",
-    ".copc.laz",
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".webp",
-    ".avif",
-    ".ply",
-    ".zip",
-}
 
 
 def process_data_product_uploaded_to_tusd(
@@ -85,13 +75,13 @@ def process_data_product_uploaded_to_tusd(
     """
     # create new filename
     new_filename = str(uuid4())
-    # get the full extension
-    extension = get_file_extension(original_filename)
     # check if uploaded file has supported extension
-    if extension not in SUPPORTED_EXTENSIONS:
+    try:
+        extension = validate_data_product_extension(original_filename)
+    except UnsupportedUploadExtension as exc:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported file extension"
-        )
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
     # create new data product record
     data_product = crud.data_product.create_with_flight(
         db,
@@ -198,14 +188,15 @@ def process_raw_data_uploaded_to_tusd(
     """
     # upload file info and new filename
     new_filename = str(uuid4())
-    # lowercase the file extension
-    original_filename = original_filename.with_suffix(original_filename.suffix.lower())
     # check if uploaded file has supported extension
-    suffix = original_filename.suffix
-    if suffix != ".zip":
+    try:
+        suffix = validate_raw_data_extension(original_filename)
+    except UnsupportedUploadExtension as exc:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Raw data must be in .zip"
-        )
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    # lowercase the file extension
+    original_filename = original_filename.with_suffix(suffix)
     # create new raw data record
     try:
         raw_data = crud.raw_data.create_with_flight(
@@ -252,19 +243,6 @@ def process_raw_data_uploaded_to_tusd(
     return {"status": "processing"}
 
 
-ANNOTATION_ATTACHMENT_EXTENSIONS = {
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".gif",
-    ".webp",
-    ".mp4",
-    ".mov",
-    ".webm",
-    ".avi",
-}
-
-
 def process_annotation_attachment_uploaded_to_tusd(
     db: Session,
     storage_path: Path,
@@ -273,6 +251,7 @@ def process_annotation_attachment_uploaded_to_tusd(
     flight_id: UUID,
     data_product_id: UUID,
     annotation_id: UUID,
+    info_path: Optional[str] = None,
 ) -> Dict:
     """Post-processing for annotation attachment uploaded via tusd. Moves the file
     to the annotation's static directory and creates a DB record.
@@ -285,6 +264,7 @@ def process_annotation_attachment_uploaded_to_tusd(
         flight_id (UUID): Flight ID.
         data_product_id (UUID): Data product ID.
         annotation_id (UUID): Annotation ID.
+        info_path (Optional[str]): Location of the upload's .info file on tusd server.
 
     Raises:
         HTTPException: If file extension is unsupported or annotation not found.
@@ -292,12 +272,12 @@ def process_annotation_attachment_uploaded_to_tusd(
     Returns:
         dict: Success status.
     """
-    extension = original_filename.suffix.lower()
-    if extension not in ANNOTATION_ATTACHMENT_EXTENSIONS:
+    try:
+        extension = validate_annotation_attachment_extension(original_filename)
+    except UnsupportedUploadExtension as exc:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported file type. Allowed: {', '.join(sorted(ANNOTATION_ATTACHMENT_EXTENSIONS))}",
-        )
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
 
     # Verify annotation exists and belongs to the data product
     annotation = crud.annotation.get(db, id=annotation_id)
@@ -331,6 +311,7 @@ def process_annotation_attachment_uploaded_to_tusd(
 
     # Move file from tusd storage
     shutil.move(str(storage_path), str(destination))
+    remove_upload_from_tusd(storage_path, info_path)
 
     # Build relative URL for serving
     relative_path = (
@@ -351,18 +332,23 @@ def process_annotation_attachment_uploaded_to_tusd(
         ".avi": "video/x-msvideo",
     }
     content_type = content_type_map.get(extension, "application/octet-stream")
-    file_size = os.path.getsize(destination)
 
     # Create DB record
-    attachment_in = schemas.AnnotationAttachmentCreate(
-        original_filename=str(original_filename),
-        filepath=relative_path,
-        content_type=content_type,
-        size_bytes=file_size,
-    )
-    crud.annotation_attachment.create_with_annotation(
-        db, obj_in=attachment_in, annotation_id=annotation_id
-    )
+    try:
+        file_size = os.path.getsize(destination)
+        attachment_in = schemas.AnnotationAttachmentCreate(
+            original_filename=str(original_filename),
+            filepath=relative_path,
+            content_type=content_type,
+            size_bytes=file_size,
+        )
+        crud.annotation_attachment.create_with_annotation(
+            db, obj_in=attachment_in, annotation_id=annotation_id
+        )
+    except Exception:
+        # nothing will point at the attachment, so do not leave it on disk
+        destination.unlink(missing_ok=True)
+        raise
 
     return {"status": "success"}
 
@@ -388,12 +374,12 @@ def process_indoor_data_uploaded_to_tusd(
         Dict: _description_
     """
     # check if uploaded file has supported extension
-    suffix = original_filename.suffix
-    if suffix not in [".xls", ".xlsx", ".tar"]:
+    try:
+        suffix = validate_indoor_data_extension(original_filename)
+    except UnsupportedUploadExtension as exc:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Indoor data must be spreadsheet (.xls, .xlsx) or tar archive (.tar)",
-        )
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
 
     # upload file info and new filename
     new_filename = str(uuid4())
