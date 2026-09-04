@@ -8,6 +8,8 @@ from app.utils.text_utils import truncate_to_bytes
 class Storage(BaseModel):
     Path: str
     Type: str
+    # location of the upload's .info file (filestore only)
+    InfoPath: str | None = None
 
 
 # Matches the file name limit common to most filesystems, counted in bytes
@@ -20,7 +22,7 @@ class MetaData(BaseModel):
     # provenance, so it is bounded and stripped of control characters here
     # rather than sanitized at rest. It never names a download, and the only
     # part of it that reaches a path is its extension, which is checked against
-    # SUPPORTED_EXTENSIONS before use.
+    # the extensions allowed for its data type before use.
     filename: str
     filetype: str
     name: str

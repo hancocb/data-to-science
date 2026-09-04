@@ -11,10 +11,11 @@ os.environ["RATE_LIMIT_ENABLED"] = "false"
 os.environ["RUNNING_TESTS"] = "1"
 
 # Each pytest-xdist worker gets its own test database and its own on-disk static
-# directory so parallel workers never share state. Falls back to "gw0" when
-# running serially (PYTEST_XDIST_WORKER is unset).
+# and tusd upload directories so parallel workers never share state. Falls back
+# to "gw0" when running serially (PYTEST_XDIST_WORKER is unset).
 worker_id = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
 os.environ["TEST_STATIC_DIR"] = f"/tmp/static_{worker_id}"
+os.environ["TEST_TUSD_UPLOAD_DIR"] = f"/tmp/tusd_{worker_id}"
 
 import logging
 import shutil
@@ -123,8 +124,9 @@ def db_fixture(db_engine: Engine) -> Generator[Session, None, None]:
         session.close()
         # Files written to disk by helpers/endpoints are not transactional and
         # must be removed between tests.
-        if os.path.exists(settings.TEST_STATIC_DIR):
-            shutil.rmtree(settings.TEST_STATIC_DIR)
+        for test_dir in (settings.TEST_STATIC_DIR, settings.TEST_TUSD_UPLOAD_DIR):
+            if os.path.exists(test_dir):
+                shutil.rmtree(test_dir)
 
 
 @pytest.fixture(name="client")

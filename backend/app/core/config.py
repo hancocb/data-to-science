@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     API_DOMAIN: str = ""
     TEST_STATIC_DIR: str = "/tmp/static"
     STATIC_DIR: str = "/static"
+    TEST_TUSD_UPLOAD_DIR: str = "/tmp/tusd"
+    TUSD_UPLOAD_DIR: str = "/srv/tusd-data/data"
     POTREE_DIR: str = "/app/potree"
     PC_GLTF_VIEWER_DIR: str = "/app/pc-gltf-viewer"
 
