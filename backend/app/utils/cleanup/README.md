@@ -53,6 +53,7 @@ Individual categories can be skipped:
 | `--skip-flights`                     | Leave deactivated flights alone                      |
 | `--skip-data-products-and-raw-data`  | Leave deactivated data products and raw data alone   |
 | `--skip-stale-jobs`                  | Leave stale upload jobs alone                        |
+| `--skip-tusd-uploads`                | Leave uploads on the tusd server alone               |
 
 The script exits non-zero if a record could not be removed. A failed record is
 logged and the run continues, so one bad record does not stop the rest.
@@ -77,6 +78,19 @@ because they ended as `FAILED`. The partial data product or raw data the upload
 created is removed with the job, which is what frees the disk space; the job
 record is removed by the database cascade. A stale job whose upload record is
 already gone is removed on its own.
+
+**Tusd uploads** (`cleanup_tusd_uploads.py`) — uploads the tus file server is
+still holding. tusd stores each upload as `<id>` and `<id>.info` in
+`TUSD_UPLOAD_DIR` and never removes either one, so anything left there was
+abandoned before it finished or was never processed. An unfinished upload is
+kept for a week, because the client that started it can still resume it, and its
+age is taken from the last chunk written rather than when it started. An upload
+that finished, or that is missing one of its two files, is kept for a day, which
+is far longer than the task that copies it to the user data volume takes. Files
+not named like a tusd upload id are never touched. Upload records older than a
+week are removed with them.
+
+This category is also run daily by the `cleanup-tusd-uploads` Celery beat task.
 
 Deactivating a project cascades to its flights and data products, so the same
 files can be visible to more than one category. Each record is only counted and
@@ -114,9 +128,9 @@ reason.
 
 ## Adding it to a schedule
 
-There is no Celery beat entry for this yet. Validate it by hand first — a dry
-run, then a real run — before adding one alongside the entries in
-`app/tasks/admin_tasks.py`.
+Only the tusd uploads category runs on a schedule (`cleanup-tusd-uploads` in
+`app/tasks/admin_tasks.py`). Validate the other categories by hand first — a dry
+run, then a real run — before adding beat entries for them.
 
 ## Known gaps
 
@@ -132,8 +146,10 @@ These are not cleaned up by this script:
 
 ## Tests
 
-`app/tests/utils/test_cleanup.py`:
+`app/tests/utils/test_cleanup.py` and
+`app/tests/utils/test_cleanup_tusd_uploads.py`:
 
 ```bash
-docker compose exec backend pytest app/tests/utils/test_cleanup.py
+docker compose exec backend pytest app/tests/utils/test_cleanup.py \
+  app/tests/utils/test_cleanup_tusd_uploads.py
 ```

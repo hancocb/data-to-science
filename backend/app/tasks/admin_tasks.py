@@ -7,6 +7,7 @@ from app.core.celery_app import celery_app
 from app.core.config import settings
 from app.crud.crud_admin import get_disk_usage
 from app.schemas.disk_usage_stats import DiskUsageStatsCreate
+from app.utils.cleanup.cleanup_tusd_uploads import cleanup_tusd_uploads
 from app.utils.job_manager import JobManager, Status
 
 logger = get_task_logger(__name__)
@@ -27,6 +28,11 @@ celery_app.conf.beat_schedule = {
     "snapshot-activity-metrics": {
         "task": "snapshot_activity_metrics_task",
         "schedule": crontab(hour=0, minute=15),
+        "args": (),
+    },
+    "cleanup-tusd-uploads": {
+        "task": "cleanup_tusd_uploads_task",
+        "schedule": crontab(hour=3, minute=30),
         "args": (),
     },
 }
@@ -89,3 +95,19 @@ def cleanup_refresh_tokens() -> None:
         logger.info("Purged %d stale refresh token(s)", deleted)
     except Exception:
         logger.exception("Unable to clean up refresh tokens")
+
+
+@celery_app.task(name="cleanup_tusd_uploads_task")
+def cleanup_tusd_uploads_task() -> None:
+    """Remove uploads abandoned on the tusd server, and their upload records."""
+    db = next(get_db())
+    try:
+        stats = cleanup_tusd_uploads(db)
+        logger.info(
+            "Removed %d tusd upload(s) totaling %d bytes, %d failure(s)",
+            stats["items_removed"],
+            stats["space_freed_up"],
+            stats["failures"],
+        )
+    except Exception:
+        logger.exception("Unable to clean up tusd uploads")

@@ -10,6 +10,12 @@ D2S uses [tusd](https://tus.io/) for resumable file uploads. This ensures that l
 2. tusd stores the file in a configured upload directory (`TUSD_STORAGE`).
 3. Once the upload completes, tusd notifies the FastAPI backend via a webhook.
 4. The backend creates a database record and dispatches a Celery task for processing.
+5. The task copies the file to the user data volume and removes it from the upload directory.
+
+The upload directory is temporary storage. tusd never removes anything from it
+itself, so uploads that are abandoned before they finish, or that finish but are
+never processed, are removed by a daily cleanup task once they are old enough to
+no longer be resumable (see `app/utils/cleanup/README.md`).
 
 ## Data product types
 

@@ -13,6 +13,7 @@ from app.utils.cleanup.cleanup_data_products_and_raw_data import (
 from app.utils.cleanup.cleanup_flights import cleanup_flights
 from app.utils.cleanup.cleanup_projects import cleanup_projects
 from app.utils.cleanup.cleanup_stale_jobs import cleanup_stale_jobs
+from app.utils.cleanup.cleanup_tusd_uploads import cleanup_tusd_uploads
 from app.utils.cleanup.common import RETENTION_WEEKS, get_project_ids_with_s3_objects
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,9 @@ def run(db: Session, args: argparse.Namespace) -> Dict[str, Dict[str, Any]]:
             s3_project_ids=s3_project_ids,
         )
 
+    if not args.skip_tusd_uploads:
+        results["Tusd uploads"] = cleanup_tusd_uploads(db, args.check_only)
+
     print_report(results, args.check_only)
 
     return results
@@ -137,7 +141,8 @@ def get_parser() -> argparse.ArgumentParser:
         description=(
             "Removes projects, flights, data products, and raw data that have "
             f"been deactivated for more than {RETENTION_WEEKS} weeks, and "
-            "upload jobs that never finished, along with their static files."
+            "upload jobs that never finished, along with their static files. "
+            "Also removes uploads abandoned on the tusd server."
         )
     )
     parser.add_argument(
@@ -167,6 +172,11 @@ def get_parser() -> argparse.ArgumentParser:
         "--skip-stale-jobs",
         action="store_true",
         help="Skip removing stale upload jobs.",
+    )
+    parser.add_argument(
+        "--skip-tusd-uploads",
+        action="store_true",
+        help="Skip removing abandoned uploads from the tusd server.",
     )
     return parser
 

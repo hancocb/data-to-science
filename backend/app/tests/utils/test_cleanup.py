@@ -72,11 +72,13 @@ def get_args(
     skip_flights: bool = False,
     skip_data_products_and_raw_data: bool = False,
     skip_stale_jobs: bool = False,
+    skip_tusd_uploads: bool = True,
 ) -> argparse.Namespace:
     """Build the arguments cleanup_main.run expects.
 
     Built by the real parser so the flags and their defaults cannot drift from
-    the ones the script actually accepts.
+    the ones the script actually accepts. Tusd uploads are skipped by default so
+    the totals these tests add up only cover the categories they set up.
     """
     flags = {
         "--check-only": check_only,
@@ -84,6 +86,7 @@ def get_args(
         "--skip-flights": skip_flights,
         "--skip-data-products-and-raw-data": skip_data_products_and_raw_data,
         "--skip-stale-jobs": skip_stale_jobs,
+        "--skip-tusd-uploads": skip_tusd_uploads,
     }
     return get_parser().parse_args([flag for flag, on in flags.items() if on])
 
