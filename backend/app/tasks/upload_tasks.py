@@ -31,6 +31,7 @@ from app.utils.ImageProcessor import ImageProcessor, get_utm_epsg_from_latlon
 from app.utils.job_manager import JobManager
 from app.utils.lcc_validator import unpack_lcc_zip
 from app.utils.TarProcessor import TarProcessor
+from app.utils.tusd.storage import removes_tusd_upload
 
 logger = get_task_logger(__name__)
 
@@ -38,7 +39,17 @@ logger = get_task_logger(__name__)
 BUFFER_SIZE = 32 * 1024 * 1024
 
 
+def _remove_output_dir(out_path: Path) -> None:
+    """Remove the directory an upload was copied into.
+
+    Args:
+        out_path (Path): Filepath for the copied upload in static files.
+    """
+    shutil.rmtree(out_path.parent, ignore_errors=True)
+
+
 @celery_app.task(name="upload_3dgs_task")
+@removes_tusd_upload
 def upload_3dgs(
     storage_path: str,
     destination_filepath: str,
@@ -53,12 +64,7 @@ def upload_3dgs(
         job_id (UUID): Job ID for job associated with upload process.
         data_product_id (UUID): Data product ID for uploaded 3D Gaussian Splatting image.
     """
-    in_image = Path(storage_path)
     out_image = Path(destination_filepath)
-
-    # copy uploaded panoramic image to static files
-    with open(storage_path, "rb") as src, open(out_image, "wb") as dst:
-        shutil.copyfileobj(src, dst, length=BUFFER_SIZE)
 
     # get database session
     db = next(get_db())
@@ -67,76 +73,60 @@ def upload_3dgs(
     try:
         job = JobManager(job_id=job_id)
     except ValueError:
-        # remove uploaded file and raise exception
-        if os.path.exists(in_image):
-            shutil.rmtree(in_image.parents[1])
+        _remove_output_dir(out_image)
         logger.error("Could not find job in DB for upload process")
         return None
 
-    # validate uploaded 3D Gaussian Splatting image
-    is_valid, error_message = validate_3dgs_image(str(out_image))
-    if not is_valid:
-        # remove uploaded file and raise exception
-        if os.path.exists(storage_path):
-            os.remove(storage_path)
-        if os.path.exists(f"{storage_path}.info"):
-            os.remove(f"{storage_path}.info")
-        # remove output image
-        if os.path.exists(out_image):
-            os.remove(out_image)
+    try:
+        # copy uploaded 3D Gaussian Splatting image to static files
+        with open(storage_path, "rb") as src, open(out_image, "wb") as dst:
+            shutil.copyfileobj(src, dst, length=BUFFER_SIZE)
 
+        # validate uploaded 3D Gaussian Splatting image
+        is_valid, error_message = validate_3dgs_image(str(out_image))
+        if not is_valid:
+            _remove_output_dir(out_image)
+            job.update(status=Status.FAILED)
+            logger.error(f"Invalid 3D Gaussian Splatting image: {error_message}")
+            return None
+
+        # retrieve data product associated with this task
+        data_product = crud.data_product.get(db, id=data_product_id)
+
+        if not data_product:
+            _remove_output_dir(out_image)
+            job.update(status=Status.FAILED)
+            logger.error("Could not find data product in DB for upload process")
+            return None
+
+        # update job status to indicate process has started
+        job.start()
+
+        # update data product filepath to 3D Gaussian Splatting image
+        crud.data_product.update(
+            db,
+            db_obj=data_product,
+            obj_in=DataProductUpdate(
+                filepath=str(out_image), is_initial_processing_completed=True
+            ),
+        )
+
+        # record on-disk size so per-user data usage stays a fast SQL SUM
+        crud.data_product.set_file_size(db, data_product.id)
+    except Exception:
+        _remove_output_dir(out_image)
         job.update(status=Status.FAILED)
-        logger.error(f"Invalid 3D Gaussian Splatting image: {error_message}")
+        logger.exception("Failed to process uploaded 3D Gaussian Splatting image")
         return None
-
-    # retrieve data product associated with this task
-    data_product = crud.data_product.get(db, id=data_product_id)
-
-    if not data_product:
-        # remove uploaded file and raise exception
-        if os.path.exists(storage_path):
-            os.remove(storage_path)
-        if os.path.exists(f"{storage_path}.info"):
-            os.remove(f"{storage_path}.info")
-        # remove output image
-        if os.path.exists(out_image):
-            os.remove(out_image)
-
-        job.update(status=Status.FAILED)
-        logger.error("Could not find data product in DB for upload process")
-        return None
-
-    # update job status to indicate process has started
-    job.start()
-
-    # update data product filepath to 3D Gaussian Splatting image
-    crud.data_product.update(
-        db,
-        db_obj=data_product,
-        obj_in=DataProductUpdate(
-            filepath=str(out_image), is_initial_processing_completed=True
-        ),
-    )
-
-    # record on-disk size so per-user data usage stays a fast SQL SUM
-    crud.data_product.set_file_size(db, data_product.id)
 
     # update job to indicate process finished
     job.update(status=Status.SUCCESS)
-
-    # remove the uploaded 3D Gaussian Splatting image from tusd
-    try:
-        if os.path.exists(storage_path):
-            os.remove(storage_path)
-        if os.path.exists(f"{storage_path}.info"):
-            os.remove(f"{storage_path}.info")
-    except Exception:
-        logger.exception("Unable to cleanup upload on tusd server")
 
     return None
 
 
 @celery_app.task(name="upload_3dgs_lcc_task")
+@removes_tusd_upload
 def upload_3dgs_lcc(
     storage_path: str,
     data_product_dir: str,
@@ -216,34 +206,31 @@ def upload_3dgs_lcc(
     except Exception:
         logger.exception("Failed to remove temp zip file")
 
-    # update data product filepath to the extracted .lcc file
-    crud.data_product.update(
-        db,
-        db_obj=data_product,
-        obj_in=DataProductUpdate(
-            filepath=lcc_filepath, is_initial_processing_completed=True
-        ),
-    )
+    try:
+        # update data product filepath to the extracted .lcc file
+        crud.data_product.update(
+            db,
+            db_obj=data_product,
+            obj_in=DataProductUpdate(
+                filepath=lcc_filepath, is_initial_processing_completed=True
+            ),
+        )
 
-    # record on-disk size so per-user data usage stays a fast SQL SUM
-    crud.data_product.set_file_size(db, data_product.id)
+        # record on-disk size so per-user data usage stays a fast SQL SUM
+        crud.data_product.set_file_size(db, data_product.id)
+    except Exception:
+        job.update(status=Status.FAILED)
+        logger.exception("Failed to update data product in db")
+        return None
 
     # update job to indicate process finished
     job.update(status=Status.SUCCESS)
-
-    # remove the uploaded LCC zip from tusd
-    try:
-        if os.path.exists(storage_path):
-            os.remove(storage_path)
-        if os.path.exists(f"{storage_path}.info"):
-            os.remove(f"{storage_path}.info")
-    except Exception:
-        logger.exception("Unable to cleanup upload on tusd server")
 
     return None
 
 
 @celery_app.task(name="upload_geotiff_task")
+@removes_tusd_upload
 def upload_geotiff(
     storage_path: str,
     geotiff_filepath: str,
@@ -264,30 +251,31 @@ def upload_geotiff(
     """
     in_raster = Path(geotiff_filepath)
 
-    # copy uploaded GeoTIFF to static files
-    with open(storage_path, "rb") as src, open(in_raster, "wb") as dst:
-        shutil.copyfileobj(src, dst, length=BUFFER_SIZE)
-
     # get database session
     db = next(get_db())
     # retrieve job associated with this task
     try:
         job = JobManager(job_id=job_id)
     except ValueError:
-        # remove uploaded file and raise exception
-        if os.path.exists(in_raster):
-            shutil.rmtree(in_raster.parent)
+        _remove_output_dir(in_raster)
         logger.error("Could not find job in DB for upload process")
+        return None
+
+    try:
+        # copy uploaded GeoTIFF to static files
+        with open(storage_path, "rb") as src, open(in_raster, "wb") as dst:
+            shutil.copyfileobj(src, dst, length=BUFFER_SIZE)
+    except Exception:
+        _remove_output_dir(in_raster)
+        job.update(status=Status.FAILED)
+        logger.exception("Failed to copy uploaded GeoTIFF to static files")
         return None
 
     # retrieve data product associated with this task
     data_product = crud.data_product.get(db, id=data_product_id)
 
     if not data_product:
-        # remove uploaded file and raise exception
-        if os.path.exists(in_raster):
-            shutil.rmtree(in_raster.parent)
-
+        _remove_output_dir(in_raster)
         job.update(status=Status.FAILED)
         logger.error("Could not find data product in DB for upload process")
         return None
@@ -324,35 +312,33 @@ def upload_geotiff(
         logger.exception("Failed to update data product in db")
         return None
 
-    # indicate initial processing finished without errors
-    crud.data_product.update(
-        db,
-        db_obj=data_product,
-        obj_in=DataProductUpdate(is_initial_processing_completed=True),
-    )
+    try:
+        # indicate initial processing finished without errors
+        crud.data_product.update(
+            db,
+            db_obj=data_product,
+            obj_in=DataProductUpdate(is_initial_processing_completed=True),
+        )
 
-    # record on-disk size so per-user data usage stays a fast SQL SUM
-    crud.data_product.set_file_size(db, data_product.id)
+        # record on-disk size so per-user data usage stays a fast SQL SUM
+        crud.data_product.set_file_size(db, data_product.id)
 
-    # create user style record for data product and user
-    crud.user_style.create_with_data_product_and_user(
-        db,
-        obj_in=default_symbology,
-        data_product_id=data_product.id,
-        user_id=user_id,
-    )
+        # create user style record for data product and user
+        crud.user_style.create_with_data_product_and_user(
+            db,
+            obj_in=default_symbology,
+            data_product_id=data_product.id,
+            user_id=user_id,
+        )
+    except Exception:
+        if os.path.exists(in_raster.parents[1]):
+            shutil.rmtree(in_raster.parents[1])
+        job.update(status=Status.FAILED)
+        logger.exception("Failed to finish processing uploaded GeoTIFF")
+        return None
 
     # update job to indicate process finished
     job.update(status=Status.SUCCESS)
-
-    # remove the uploaded geotiff from tusd
-    try:
-        if os.path.exists(storage_path):
-            os.remove(storage_path)
-        if os.path.exists(f"{storage_path}.info"):
-            os.remove(f"{storage_path}.info")
-    except Exception:
-        logger.exception("Unable to cleanup upload on tusd server")
 
     return None
 
@@ -461,6 +447,7 @@ def extract_dates_from_indoor_spreadsheet(
 
 
 @celery_app.task(name="upload_indoor_project_data_task")
+@removes_tusd_upload
 def upload_indoor_project_data(
     indoor_project_data_id: UUID,
     storage_path: str,
@@ -527,11 +514,22 @@ def upload_indoor_project_data(
         return None
 
     # extract contents if this is a tar archive
-    if tarfile.is_tarfile(destination_filepath):
+    try:
+        is_tar_archive = tarfile.is_tarfile(destination_filepath)
+    except Exception:
+        logger.exception(f"Failed to read uploaded indoor data: {destination_filepath}")
+        if os.path.exists(destination_filepath):
+            os.remove(destination_filepath)
+        job.update(status=Status.FAILED)
+        return None
+
+    if is_tar_archive:
         logger.info("Extracting indoor project data tar archive contents...")
         try:
             tar_processor = TarProcessor(tar_file_path=destination_filepath)
             tar_processor.extract()
+            # remove tar after extraction finishes
+            tar_processor.remove()
         except Exception:
             logger.exception(f"Failed to extract tar archive at {destination_filepath}")
             # clean up any files
@@ -539,9 +537,6 @@ def upload_indoor_project_data(
                 os.remove(destination_filepath)
             job.update(status=Status.FAILED)
             return None
-
-        # remove tar after extraction finishes
-        tar_processor.remove()
 
         logger.info("Extracting indoor project data tar archive contents...Done!")
     else:
@@ -628,31 +623,28 @@ def upload_indoor_project_data(
                 )
 
     # update indoor project data to indicate initial processing is complete
-    crud.indoor_project_data.update(
-        db,
-        db_obj=indoor_project_data_updated,
-        obj_in=schemas.indoor_project_data.IndoorProjectDataUpdate(
-            is_initial_processing_completed=True
-        ),
-    )
+    try:
+        crud.indoor_project_data.update(
+            db,
+            db_obj=indoor_project_data_updated,
+            obj_in=schemas.indoor_project_data.IndoorProjectDataUpdate(
+                is_initial_processing_completed=True
+            ),
+        )
+    except Exception:
+        logger.exception(
+            f"Failed to update indoor project data: {indoor_project_data_id}"
+        )
+        job.update(status=Status.FAILED)
+        return None
 
     job.update(status=Status.SUCCESS)
 
-    # remove indoor project data from tusd
-    try:
-        if os.path.exists(storage_path):
-            os.remove(storage_path)
-        if os.path.exists(f"{storage_path}.info"):
-            os.remove(f"{storage_path}.info")
-    except Exception:
-        logger.exception(
-            f"Unable to cleanup indoor project data upload on tusd server: {indoor_project_data_id}"
-        )
-    finally:
-        return None
+    return None
 
 
 @celery_app.task(name="upload_panoramic_task")
+@removes_tusd_upload
 def upload_panoramic(
     storage_path: str,
     destination_filepath: str,
@@ -667,12 +659,7 @@ def upload_panoramic(
         job_id (UUID): Job ID for job associated with upload process.
         data_product_id (UUID): Data product ID for uploaded panoramic image.
     """
-    in_image = Path(storage_path)
     out_image = Path(destination_filepath)
-
-    # copy uploaded panoramic image to static files
-    with open(storage_path, "rb") as src, open(out_image, "wb") as dst:
-        shutil.copyfileobj(src, dst, length=BUFFER_SIZE)
 
     # get database session
     db = next(get_db())
@@ -681,71 +668,54 @@ def upload_panoramic(
     try:
         job = JobManager(job_id=job_id)
     except ValueError:
-        # remove uploaded file and raise exception
-        if os.path.exists(in_image):
-            shutil.rmtree(in_image.parents[1])
+        _remove_output_dir(out_image)
         logger.error("Could not find job in DB for upload process")
         return None
 
-    # validate uploaded panoramic image
-    is_valid, error_message = validate_panoramic_image(str(out_image))
-    if not is_valid:
-        # remove uploaded file and raise exception
-        if os.path.exists(storage_path):
-            os.remove(storage_path)
-        if os.path.exists(f"{storage_path}.info"):
-            os.remove(f"{storage_path}.info")
-        # remove output image
-        if os.path.exists(out_image):
-            os.remove(out_image)
+    try:
+        # copy uploaded panoramic image to static files
+        with open(storage_path, "rb") as src, open(out_image, "wb") as dst:
+            shutil.copyfileobj(src, dst, length=BUFFER_SIZE)
 
+        # validate uploaded panoramic image
+        is_valid, error_message = validate_panoramic_image(str(out_image))
+        if not is_valid:
+            _remove_output_dir(out_image)
+            job.update(status=Status.FAILED)
+            logger.error(f"Invalid panoramic image: {error_message}")
+            return None
+
+        # retrieve data product associated with this task
+        data_product = crud.data_product.get(db, id=data_product_id)
+
+        if not data_product:
+            _remove_output_dir(out_image)
+            job.update(status=Status.FAILED)
+            logger.error("Could not find data product in DB for upload process")
+            return None
+
+        # update job status to indicate process has started
+        job.start()
+
+        # update data product filepath to panoramic image
+        crud.data_product.update(
+            db,
+            db_obj=data_product,
+            obj_in=DataProductUpdate(
+                filepath=str(out_image), is_initial_processing_completed=True
+            ),
+        )
+
+        # record on-disk size so per-user data usage stays a fast SQL SUM
+        crud.data_product.set_file_size(db, data_product.id)
+    except Exception:
+        _remove_output_dir(out_image)
         job.update(status=Status.FAILED)
-        logger.error(f"Invalid panoramic image: {error_message}")
+        logger.exception("Failed to process uploaded panoramic image")
         return None
-
-    # retrieve data product associated with this task
-    data_product = crud.data_product.get(db, id=data_product_id)
-
-    if not data_product:
-        # remove uploaded file and raise exception
-        if os.path.exists(storage_path):
-            os.remove(storage_path)
-        if os.path.exists(f"{storage_path}.info"):
-            os.remove(f"{storage_path}.info")
-        # remove output image
-        if os.path.exists(out_image):
-            os.remove(out_image)
-
-        job.update(status=Status.FAILED)
-        logger.error("Could not find data product in DB for upload process")
-        return None
-
-    # update job status to indicate process has started
-    job.start()
-
-    # update data product filepath to panoramic image
-    crud.data_product.update(
-        db,
-        db_obj=data_product,
-        obj_in=DataProductUpdate(
-            filepath=str(out_image), is_initial_processing_completed=True
-        ),
-    )
-
-    # record on-disk size so per-user data usage stays a fast SQL SUM
-    crud.data_product.set_file_size(db, data_product.id)
 
     # update job to indicate process finished
     job.update(status=Status.SUCCESS)
-
-    # remove the uploaded panoramic image from tusd
-    try:
-        if os.path.exists(storage_path):
-            os.remove(storage_path)
-        if os.path.exists(f"{storage_path}.info"):
-            os.remove(f"{storage_path}.info")
-    except Exception:
-        logger.exception("Unable to cleanup upload on tusd server")
 
     return None
 
@@ -785,6 +755,7 @@ def run_untwine(input_las: Path, output_copc: Path, a_srs: str | None = None) ->
 
 
 @celery_app.task(name="upload_point_cloud_task")
+@removes_tusd_upload
 def upload_point_cloud(
     storage_path: str,
     las_filepath: str,
@@ -808,10 +779,6 @@ def upload_point_cloud(
 
     logger.info(f"Input point cloud filepath: {in_las}")
 
-    # copy uploaded point cloud to static files
-    with open(storage_path, "rb") as src, open(in_las, "wb") as dst:
-        shutil.copyfileobj(src, dst, length=BUFFER_SIZE)
-
     # get database session
     db = next(get_db())
 
@@ -823,6 +790,16 @@ def upload_point_cloud(
         if os.path.exists(in_las):
             shutil.rmtree(in_las.parents[1])
         logger.error("Could not find job in DB for upload process")
+        return None
+
+    try:
+        # copy uploaded point cloud to static files
+        with open(storage_path, "rb") as src, open(in_las, "wb") as dst:
+            shutil.copyfileobj(src, dst, length=BUFFER_SIZE)
+    except Exception:
+        shutil.rmtree(in_las.parents[1], ignore_errors=True)
+        job.update(status=Status.FAILED)
+        logger.exception("Failed to copy uploaded point cloud to static files")
         return None
 
     # retrieve data product associated with this task
@@ -935,34 +912,32 @@ def upload_point_cloud(
         job.update(status=Status.FAILED)
         return None
 
-    # update data product filepath to copc.laz
-    crud.data_product.update(
-        db,
-        db_obj=data_product,
-        obj_in=DataProductUpdate(
-            filepath=str(copc_laz_filepath), is_initial_processing_completed=True
-        ),
-    )
+    try:
+        # update data product filepath to copc.laz
+        crud.data_product.update(
+            db,
+            db_obj=data_product,
+            obj_in=DataProductUpdate(
+                filepath=str(copc_laz_filepath), is_initial_processing_completed=True
+            ),
+        )
 
-    # record on-disk size so per-user data usage stays a fast SQL SUM
-    crud.data_product.set_file_size(db, data_product.id)
+        # record on-disk size so per-user data usage stays a fast SQL SUM
+        crud.data_product.set_file_size(db, data_product.id)
+    except Exception:
+        shutil.rmtree(in_las.parents[1], ignore_errors=True)
+        job.update(status=Status.FAILED)
+        logger.exception("Failed to update data product in db")
+        return None
 
     # update job to indicate process finished
     job.update(status=Status.SUCCESS)
-
-    # remove the uploaded point cloud from tusd
-    try:
-        if os.path.exists(storage_path):
-            os.remove(storage_path)
-        if os.path.exists(f"{storage_path}.info"):
-            os.remove(f"{storage_path}.info")
-    except Exception:
-        logger.exception("Unable to cleanup upload on tusd server")
 
     return str(in_las)
 
 
 @celery_app.task(name="upload_raw_data_task")
+@removes_tusd_upload
 def upload_raw_data(
     raw_data_id: UUID,
     storage_path: str,
@@ -998,6 +973,7 @@ def upload_raw_data(
     raw_data = crud.raw_data.get(db, id=raw_data_id)
     if not raw_data:
         logger.error("Unable to find raw data record")
+        job.update(status=Status.FAILED)
         return None
 
     # update job status to indicate process has started
@@ -1029,15 +1005,6 @@ def upload_raw_data(
 
     # update job to indicate process finished
     job.update(status=Status.SUCCESS)
-
-    # remove raw data from tusd
-    try:
-        if os.path.exists(storage_path):
-            os.remove(storage_path)
-        if os.path.exists(f"{storage_path}.info"):
-            os.remove(f"{storage_path}.info")
-    except Exception:
-        logger.exception("Unable to cleanup upload on tusd server")
 
 
 @celery_app.task(name="upload_vector_layer_task")
