@@ -6,6 +6,7 @@ import CompareMap from './CompareMap';
 import HomeMap from './HomeMap';
 import PanoViewer from './PanoViewer';
 import PotreeViewer from './PotreeViewer';
+import TemporalMap from './TemporalMap';
 
 import { useMapApiKeys } from './MapApiKeysContext';
 import { useMapContext } from './MapContext';
@@ -138,6 +139,8 @@ export default function MapViewMode() {
 
   if (activeMapTool === 'compare') {
     return <CompareMap />;
+  } else if (activeMapTool === 'temporal') {
+    return <TemporalMap />;
   } else if (activeDataProduct?.data_type === 'panoramic') {
     return <PanoViewer imageUrl={activeDataProduct.url} />;
   } else if (activeDataProduct?.data_type === '3dgs') {

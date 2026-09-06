@@ -35,7 +35,8 @@ function MapLayoutContent() {
     activeDataProduct?.data_type === '3dgs' ||
     (activeDataProduct?.data_type === 'point_cloud' &&
       pointCloudViewer === 'potree') ||
-    activeMapTool === 'compare';
+    activeMapTool === 'compare' ||
+    activeMapTool === 'temporal';
 
   // Auto-switch to map panel when a full-screen viewer activates on mobile
   useEffect(() => {
@@ -54,7 +55,7 @@ function MapLayoutContent() {
 
   const handleExitFullScreenViewer = () => {
     activeDataProductDispatch({ type: 'clear', payload: null });
-    if (activeMapTool === 'compare') {
+    if (activeMapTool === 'compare' || activeMapTool === 'temporal') {
       activeMapToolDispatch({ type: 'set', payload: 'map' });
     }
     setMobileView('list');

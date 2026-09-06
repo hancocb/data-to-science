@@ -1,7 +1,7 @@
 import { DataProduct, Flight, ProjectItem } from '../pages/projects/Project';
 import { ProjectsLoadedState } from './MapContext';
 
-export type MapTool = 'map' | 'compare' | 'timeline';
+export type MapTool = 'map' | 'compare' | 'temporal';
 
 export type ActiveDataProductAction = {
   type: string;

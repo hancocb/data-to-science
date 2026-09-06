@@ -42,7 +42,11 @@ export default function LayerPane({
       activeDataProduct?.data_type === '3dgs' ||
       (activeDataProduct?.data_type === 'point_cloud' &&
         pointCloudViewer === 'potree');
-    if (isFullScreenViewer || activeMapTool === 'compare') {
+    if (
+      isFullScreenViewer ||
+      activeMapTool === 'compare' ||
+      activeMapTool === 'temporal'
+    ) {
       toggleHidePane(true);
     }
   }, [activeDataProduct, activeMapTool, pointCloudViewer, toggleHidePane]);
