@@ -1,14 +1,15 @@
 from datetime import datetime
 from typing import Optional
-
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
 
-# Minimal schema for POST - accepts any JSON
+# Schema for POST - requires a UUID "id" and accepts any other fields
 class IGraderPost(BaseModel):
     model_config = ConfigDict(extra="allow")
+
+    id: UUID
 
 
 # Shared properties for DB storage

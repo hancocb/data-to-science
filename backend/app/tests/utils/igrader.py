@@ -1,4 +1,5 @@
 from typing import Optional
+from uuid import uuid4
 
 from pydantic import UUID4
 from sqlalchemy.orm import Session
@@ -6,7 +7,6 @@ from sqlalchemy.orm import Session
 from app import crud
 from app.schemas.igrader import IGraderPost
 from app.tests.utils.project import create_project
-
 
 EXAMPLE_DATA = {
     "id": "c1234567-89a0-1234-5678-901234567890",
@@ -46,7 +46,9 @@ def create_igrader(
         project = create_project(db)
         project_id = project.id
 
-    post_data = data if data is not None else EXAMPLE_DATA
+    # each call creates a distinct record unless the caller fixes the id
+    post_data = {**EXAMPLE_DATA, "id": str(uuid4())} if data is None else {**data}
+    post_data.setdefault("id", str(uuid4()))
     igrader_post = IGraderPost(**post_data)
     igrader, _created = crud.igrader.create_or_update_from_post(
         db, post_data=igrader_post, project_id=project_id

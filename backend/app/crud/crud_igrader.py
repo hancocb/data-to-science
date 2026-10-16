@@ -22,8 +22,9 @@ class CRUDIGrader(CRUDBase[IGrader, IGraderCreate, IGraderUpdate]):
         Returns a tuple of (record, created) where created is True
         if a new record was inserted.
         """
-        data_dict = post_data.model_dump()
-        igrader_id = data_dict["id"]
+        # keep the payload in its json form so the stored data matches what was sent
+        data_dict = post_data.model_dump(mode="json")
+        igrader_id = post_data.id
 
         existing = self.get_by_igrader_id(
             db, igrader_id=igrader_id, project_id=project_id
@@ -48,7 +49,7 @@ class CRUDIGrader(CRUDBase[IGrader, IGraderCreate, IGraderUpdate]):
         return db_obj, True
 
     def get_by_igrader_id(
-        self, db: Session, igrader_id: str, project_id: UUID4
+        self, db: Session, igrader_id: UUID4, project_id: UUID4
     ) -> Optional[IGrader]:
         """Look up an IGrader record by the external igrader_id within a project."""
         statement = select(IGrader).where(
