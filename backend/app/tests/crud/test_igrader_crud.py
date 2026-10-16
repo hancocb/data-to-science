@@ -3,7 +3,7 @@ from typing import Sequence
 from sqlalchemy.orm import Session
 
 from app import crud
-from app.tests.utils.igrader import create_igrader, EXAMPLE_DATA
+from app.tests.utils.igrader import EXAMPLE_DATA, create_igrader
 from app.tests.utils.project import create_project
 
 
