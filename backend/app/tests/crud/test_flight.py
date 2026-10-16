@@ -2,18 +2,22 @@ import os
 from datetime import date, datetime, timezone
 
 import geopandas as gpd
+import pytest
 from geojson_pydantic import FeatureCollection
 from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app import crud
 from app.core.config import settings
+from app.core.exceptions import PermissionDenied
 from app.models.flight import PLATFORMS, SENSORS
 from app.models.vector_layer import VectorLayer
 from app.schemas.data_product import DataProductCreate
 from app.schemas.flight import FlightUpdate
 from app.schemas.job import State, Status
 from app.tests.utils.data_product import SampleDataProduct
+from app.tests.utils.data_product_like import create_data_product_like
+from app.tests.utils.data_product_view import create_data_product_view
 from app.tests.utils.flight import create_flight
 from app.tests.utils.job import create_job
 from app.tests.utils.project import create_project
@@ -100,17 +104,15 @@ def test_get_flights_with_raster_data_products(db: Session) -> None:
     project = create_project(db, owner_id=user.id)
     flight1 = create_flight(db, project_id=project.id)
     flight2 = create_flight(db, project_id=project.id)
-    flight3 = create_flight(db, project_id=project.id)
+    create_flight(db, project_id=project.id)
     # Add raster data product to flight1
-    raster_data_product1 = SampleDataProduct(
-        db, data_type="ortho", flight=flight1, project=project
-    )
+    SampleDataProduct(db, data_type="ortho", flight=flight1, project=project)
     # Add point cloud data product to flight2
-    point_cloud_data_product = crud.data_product.create_with_flight(
+    crud.data_product.create_with_flight(
         db,
         obj_in=DataProductCreate(
             data_type="point_cloud",
-            filepath=f"/some/path/to/test.las",
+            filepath="/some/path/to/test.las",
             original_filename="test.las",
         ),
         flight_id=flight2.id,
@@ -128,6 +130,57 @@ def test_get_flights_with_raster_data_products(db: Session) -> None:
     assert isinstance(flights_with_rasters, list)
     assert len(flights_with_rasters) == 1
     assert flights_with_rasters[0].id == flight1.id
+
+
+def test_get_flights_populates_like_view_counts(db: Session) -> None:
+    user = create_user(db)
+    project = create_project(db, owner_id=user.id)
+    flight = create_flight(db, project_id=project.id)
+    data_product = SampleDataProduct(
+        db, data_type="ortho", flight=flight, project=project
+    )
+    # One like by the requesting user and two views from distinct sessions
+    create_data_product_like(db, data_product_id=data_product.obj.id, user_id=user.id)
+    create_data_product_view(db, data_product_id=data_product.obj.id, user_id=user.id)
+    create_data_product_view(
+        db, data_product_id=data_product.obj.id, session_id="anon-session"
+    )
+
+    upload_dir = settings.TEST_STATIC_DIR
+    flights = crud.flight.get_multi_by_project(
+        db,
+        project_id=project.id,
+        upload_dir=upload_dir,
+        user_id=user.id,
+        include_all=True,
+    )
+
+    assert len(flights) == 1
+    returned = flights[0].data_products[0]
+    assert returned.like_count == 1
+    assert returned.view_count == 2
+    assert returned.liked is True
+
+
+def test_get_flights_like_view_counts_default_to_zero(db: Session) -> None:
+    user = create_user(db)
+    project = create_project(db, owner_id=user.id)
+    flight = create_flight(db, project_id=project.id)
+    SampleDataProduct(db, data_type="ortho", flight=flight, project=project)
+
+    upload_dir = settings.TEST_STATIC_DIR
+    flights = crud.flight.get_multi_by_project(
+        db,
+        project_id=project.id,
+        upload_dir=upload_dir,
+        user_id=user.id,
+        include_all=True,
+    )
+
+    returned = flights[0].data_products[0]
+    assert returned.like_count == 0
+    assert returned.view_count == 0
+    assert returned.liked is False
 
 
 def test_get_flights_excluding_processing_or_failed_data_products(db: Session) -> None:
@@ -204,17 +257,67 @@ def test_deactivate_flight(db: Session) -> None:
     )
 
 
+def test_deactivate_flight_in_published_project_is_refused(db: Session) -> None:
+    """A flight in a published project cannot be deactivated, whatever calls
+    the CRUD method."""
+    project = create_project(db)
+    flight = create_flight(db, project_id=project.id)
+    crud.project.update_project_visibility(db, project_id=project.id, is_public=True)
+
+    with pytest.raises(PermissionDenied):
+        crud.flight.deactivate(db, flight_id=flight.id)
+
+    flight_in_db = crud.flight.get(db, id=flight.id)
+    assert flight_in_db and flight_in_db.is_active is True
+
+
 def test_deactivate_flight_deactivates_data_products(db: Session) -> None:
     user = create_user(db)
     project = create_project(db, owner_id=user.id)
     flight = create_flight(db, project_id=project.id)
     data_product = SampleDataProduct(db, project=project, flight=flight)
-    flight2 = crud.flight.deactivate(db, flight_id=flight.id)
+    crud.flight.deactivate(db, flight_id=flight.id)
     flight3 = crud.flight.get(db, id=flight.id)
     assert flight3 and flight3.is_active is False
-    upload_dir = settings.TEST_STATIC_DIR
     data_product = crud.data_product.get(db, id=data_product.obj.id)
     assert data_product and data_product.is_active is False
+
+
+def test_deactivate_flight_keeps_earlier_data_product_deactivated_at(
+    db: Session,
+) -> None:
+    """Deleting a flight does not restart the retention window for a data
+    product that was already deactivated on its own."""
+    project = create_project(db)
+    flight = create_flight(db, project_id=project.id)
+    data_product = SampleDataProduct(db, project=project, flight=flight)
+
+    crud.data_product.deactivate(db, data_product_id=data_product.obj.id)
+    deactivated_first = crud.data_product.get(db, id=data_product.obj.id)
+    assert deactivated_first and deactivated_first.deactivated_at
+    original_deactivated_at = deactivated_first.deactivated_at
+
+    crud.flight.deactivate(db, flight_id=flight.id)
+
+    deactivated_again = crud.data_product.get(db, id=data_product.obj.id)
+    assert deactivated_again and deactivated_again.is_active is False
+    assert deactivated_again.deactivated_at == original_deactivated_at
+
+
+def test_deactivate_flight_twice_keeps_original_deactivated_at(db: Session) -> None:
+    """A repeated delete leaves the first deletion's timestamp in place."""
+    flight = create_flight(db)
+
+    crud.flight.deactivate(db, flight_id=flight.id)
+    deactivated_first = crud.flight.get(db, id=flight.id)
+    assert deactivated_first and deactivated_first.deactivated_at
+    original_deactivated_at = deactivated_first.deactivated_at
+
+    crud.flight.deactivate(db, flight_id=flight.id)
+
+    deactivated_again = crud.flight.get(db, id=flight.id)
+    assert deactivated_again and deactivated_again.is_active is False
+    assert deactivated_again.deactivated_at == original_deactivated_at
 
 
 def test_get_deactivated_flight_returns_none(db: Session) -> None:
@@ -274,10 +377,9 @@ def test_get_flight_ignores_deactivated_data_products(db: Session) -> None:
     project = create_project(db, owner_id=user.id)
     flight = create_flight(db, project_id=project.id)
     data_product1 = SampleDataProduct(db, project=project, flight=flight)
-    data_product2 = SampleDataProduct(db, project=project, flight=flight)
-    data_product3 = SampleDataProduct(db, project=project, flight=flight)
+    SampleDataProduct(db, project=project, flight=flight)
+    SampleDataProduct(db, project=project, flight=flight)
     crud.data_product.deactivate(db, data_product_id=data_product1.obj.id)
-    upload_dir = settings.TEST_STATIC_DIR
     flight = crud.flight.get_flight_by_id(
         db, project_id=project.id, flight_id=flight.id
     )
@@ -294,8 +396,8 @@ def test_get_flights_ignores_deactivated_data_products(db: Session) -> None:
 
     data_f1d1 = SampleDataProduct(db, project=project, flight=flight1)
     data_f2d1 = SampleDataProduct(db, project=project, flight=flight2)
-    data_f1d2 = SampleDataProduct(db, project=project, flight=flight1)
-    data_f2d2 = SampleDataProduct(db, project=project, flight=flight2)
+    SampleDataProduct(db, project=project, flight=flight1)
+    SampleDataProduct(db, project=project, flight=flight2)
 
     upload_dir = settings.TEST_STATIC_DIR
     flights = crud.flight.get_multi_by_project(
@@ -329,8 +431,8 @@ def test_update_flight_project(db: Session) -> None:
     dst_project = create_project(db, owner_id=user.id)
     # create flight associated with source project
     flight = create_flight(db, project_id=src_project.id)
-    flight2 = create_flight(db, project_id=src_project.id)
-    flight3 = create_flight(db, project_id=src_project.id)
+    create_flight(db, project_id=src_project.id)
+    create_flight(db, project_id=src_project.id)
     # add data product to flight
     data_product = SampleDataProduct(db, flight=flight)
 

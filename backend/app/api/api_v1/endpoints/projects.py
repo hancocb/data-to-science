@@ -3,15 +3,13 @@ import os
 from typing import Any, List, Union
 from uuid import UUID
 
-from geojson_pydantic import Feature, FeatureCollection
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from geojson_pydantic import Feature, FeatureCollection
 from sqlalchemy.orm import Session
 
 from app import crud, models, schemas
 from app.api import deps
 from app.api.utils import create_project_field_preview
-from app.core.config import settings
-
 
 logger = logging.getLogger("__name__")
 
@@ -133,7 +131,7 @@ def update_project(
     if project_in.planting_date and project.harvest_date:
         if project.harvest_date < project_in.planting_date:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=[
                     {
                         "loc": ["body", "harvest_date"],
@@ -146,7 +144,7 @@ def update_project(
     if project_in.harvest_date and project.planting_date:
         if project_in.harvest_date < project.planting_date:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=[
                     {
                         "loc": ["body", "harvest_date"],
@@ -177,13 +175,7 @@ def deactivate_project(
     current_user: models.User = Depends(deps.get_current_approved_user),
     db: Session = Depends(deps.get_db),
 ) -> Any:
-    # Check if project is published
-    if project.is_published:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot deactivate project when it is published in a STAC catalog",
-        )
-
+    # crud.project.deactivate refuses a project published in a STAC catalog
     deactivated_project = crud.project.deactivate(
         db, project_id=project.id, user_id=current_user.id
     )

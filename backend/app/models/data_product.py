@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -11,10 +11,13 @@ from app.models.utils.utcnow import utcnow
 
 if TYPE_CHECKING:
     from .annotation import Annotation
+    from .data_product_like import DataProductLike
     from .data_product_metadata import DataProductMetadata
+    from .data_product_view import DataProductView
     from .file_permission import FilePermission
     from .flight import Flight
     from .job import Job
+    from .raw_data import RawData
     from .user_style import UserStyle
     from .vector_layer import VectorLayer
 
@@ -36,6 +39,10 @@ class DataProduct(Base):
     bbox: Mapped[dict] = mapped_column(JSONB, nullable=True)
     crs: Mapped[dict] = mapped_column(JSONB, nullable=True)
     resolution: Mapped[dict] = mapped_column(JSONB, nullable=True)
+    s3_url: Mapped[str] = mapped_column(String, nullable=True)
+    # On-disk size in bytes of the data product directory, captured at upload
+    # finalization so per-user data usage can be a fast SQL SUM.
+    file_size: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_initial_processing_completed: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False
@@ -56,6 +63,12 @@ class DataProduct(Base):
     flight_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("flights.id"), nullable=False
     )
+    # Source raw data upload this product was derived from by the external image
+    # processing service. Null for directly uploaded products. SET NULL on delete
+    # so cleanup jobs can hard-delete deactivated raw data without FK violations.
+    raw_data_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("raw_data.id", ondelete="SET NULL"), nullable=True
+    )
     # relationships
     annotations: Mapped[List["Annotation"]] = relationship(
         back_populates="data_product",
@@ -69,6 +82,7 @@ class DataProduct(Base):
         back_populates="file", cascade="all, delete"
     )
     flight: Mapped["Flight"] = relationship(back_populates="data_products")
+    raw_data: Mapped[Optional["RawData"]] = relationship(back_populates="data_products")
     jobs: Mapped[List["Job"]] = relationship(
         back_populates="data_product", cascade="all, delete"
     )
@@ -76,6 +90,12 @@ class DataProduct(Base):
         back_populates="data_product", cascade="all, delete"
     )
     vector_layer: Mapped[List["VectorLayer"]] = relationship(
+        back_populates="data_product", cascade="all, delete"
+    )
+    likes: Mapped[List["DataProductLike"]] = relationship(
+        back_populates="data_product", cascade="all, delete"
+    )
+    views: Mapped[List["DataProductView"]] = relationship(
         back_populates="data_product", cascade="all, delete"
     )
 

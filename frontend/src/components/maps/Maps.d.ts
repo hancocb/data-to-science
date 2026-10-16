@@ -14,7 +14,13 @@ export type ActiveProjectAction = { type: string; payload: ProjectItem | null };
 
 export type BBox = [number, number, number, number];
 
-export type FlightsAction = { type: string; payload: Flight[] };
+export type FlightsAction =
+  | { type: 'set'; payload: Flight[] }
+  | { type: 'clear' }
+  | {
+      type: 'update_view_count';
+      payload: { dataProductId: string; viewCount: number };
+    };
 
 export type ProjectFilterSelectionAction = { type: string; payload?: string[] };
 
@@ -37,3 +43,10 @@ export type SymbologySettingsAction = {
 };
 
 export type TileScaleAction = { type: string; payload: number };
+
+export type PointCloudViewer = 'potree' | 'map';
+
+export type PointCloudViewerAction = {
+  type: 'set' | 'clear';
+  payload?: PointCloudViewer;
+};

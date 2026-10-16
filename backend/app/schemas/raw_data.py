@@ -1,13 +1,14 @@
 from datetime import datetime
 from typing import List, Literal, Optional
 
-from pydantic import AnyHttpUrl, BaseModel, UUID4
+from pydantic import UUID4, AnyHttpUrl, BaseModel, Field
 
 
 # shared properties
 class RawDataBase(BaseModel):
     filepath: Optional[str] = None
     original_filename: Optional[str] = None
+    file_size: Optional[int] = None
     is_active: Optional[bool] = True
     is_initial_processing_completed: bool = False
 
@@ -106,3 +107,4 @@ class ODMQueryParams(BaseModel):
 class ProgressUpdate(BaseModel):
     job_id: UUID4
     progress: float
+    batch_id: Optional[str] = Field(default=None, max_length=128)

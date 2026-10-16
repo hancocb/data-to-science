@@ -1,20 +1,26 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
-  ArrowDownTrayIcon,
   CubeIcon,
   ExclamationCircleIcon,
   EyeIcon,
   PhotoIcon,
 } from '@heroicons/react/24/outline';
+import { FaRegEye, FaRegThumbsUp, FaThumbsUp } from 'react-icons/fa6';
+
+import { useDataProductLike } from '../../../../../engagement/useDataProductLike';
+import { formatCount } from '../../../../../../utils/formatCount';
 
 import { Status } from '../../../../../Alert';
 import Card from '../../../../../Card';
 import { isGeoTIFF } from './DataProductsTable';
+import { resolveRawDataSource } from './rawDataSource';
 import DataProductDeleteModal from './DataProductDeleteModal';
+import DataProductDownloadMenu from './DataProductDownloadMenu';
 import DataProductMetadataModal from './DataProductMetadataModal';
 import EditableDataType from './EditableDataType';
 import ToolboxModal from './ToolboxModal';
+import XmlMetadataAttachment from './XmlMetadata/XmlMetadataAttachment';
 import { useProjectContext } from '../../ProjectContext';
 import DataProductShareModal from './DataProductShareModal';
 
@@ -33,17 +39,25 @@ function ProgressBar() {
 export default function DataProductCard({
   dataProduct,
   otherDataProducts,
+  rawDataFilenames,
   setStatus,
 }: {
   dataProduct: DataProduct;
   otherDataProducts: DataProduct[];
+  rawDataFilenames: Map<string, string>;
   setStatus: React.Dispatch<React.SetStateAction<Status | null>>;
 }) {
+  const rawDataSource = resolveRawDataSource(dataProduct, rawDataFilenames);
   const [invalidPreviews, setInvalidPreviews] = useState<string[]>([]);
   const [isCopied, setIsCopied] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const { project, projectRole } = useProjectContext();
   const navigate = useNavigate();
+  const { engagement, toggleLike } = useDataProductLike(
+    dataProduct,
+    project?.id,
+    dataProduct.flight_id
+  );
 
   return (
     <div className="flex items-center justify-center min-h-80">
@@ -52,6 +66,33 @@ export default function DataProductCard({
           <div className="grid grid-flow-row auto-rows-max gap-2 relative">
             {/* preview image */}
             <div className="relative flex items-center justify-center bg-accent3/20">
+              {/* engagement overlay */}
+              <span className="absolute top-2.5 left-2.5 z-10 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-900/60 backdrop-blur-sm text-white text-xs">
+                <FaRegEye size={14} />
+                {formatCount(engagement.viewCount)} views
+              </span>
+              <button
+                type="button"
+                onClick={toggleLike}
+                aria-pressed={engagement.likedByMe}
+                aria-label={
+                  engagement.likedByMe
+                    ? 'Unlike this data product'
+                    : 'Like this data product'
+                }
+                className={`absolute top-2.5 right-2.5 z-10 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-white text-xs ${
+                  engagement.likedByMe
+                    ? 'bg-accent2'
+                    : 'bg-slate-900/60 backdrop-blur-sm'
+                }`}
+              >
+                {engagement.likedByMe ? (
+                  <FaThumbsUp size={14} />
+                ) : (
+                  <FaRegThumbsUp size={14} />
+                )}
+                {formatCount(engagement.likeCount)}
+              </button>
               {dataProduct.status === 'SUCCESS' &&
               isGeoTIFF(dataProduct.data_type) &&
               dataProduct.url ? (
@@ -155,7 +196,7 @@ export default function DataProductCard({
               )}
             </div>
             {/* data product details */}
-            <div className="h-10 flex items-center justify-between text-lg">
+            <div className="h-10 flex items-center justify-between gap-2 text-lg">
               <EditableDataType
                 dataProduct={dataProduct}
                 isEditing={isEditing}
@@ -164,14 +205,17 @@ export default function DataProductCard({
                 setStatus={setStatus}
               />
               {!isEditing && (
-                <div className="flex flex-row gap-4">
+                <div className="flex shrink-0 flex-row gap-3">
                   <DataProductMetadataModal dataProduct={dataProduct} />
-                  <a href={dataProduct.url} target="_blank" download>
-                    <ArrowDownTrayIcon
-                      className="w-5 h-5 hover:scale-110"
-                      title="Download data product"
-                    />
-                  </a>
+                  <XmlMetadataAttachment
+                    dataProduct={dataProduct}
+                    variant="icon"
+                  />
+                  <DataProductDownloadMenu
+                    dataProduct={dataProduct}
+                    projectId={project?.id}
+                    setStatus={setStatus}
+                  />
                   {projectRole === 'owner' && (
                     <>
                       <DataProductShareModal dataProduct={dataProduct} />
@@ -180,6 +224,23 @@ export default function DataProductCard({
                   )}
                 </div>
               )}
+            </div>
+            {/* raw data source: always render the row (empty when absent) so
+                cards with and without a source stay the same height; min-w-0 lets
+                truncate clip long filenames instead of overflowing the card */}
+            <div className="h-4 min-w-0 truncate text-xs leading-4 text-slate-500">
+              {rawDataSource.kind === 'named' ? (
+                <span title={`Generated from ${rawDataSource.filename}`}>
+                  Generated from {rawDataSource.filename}
+                </span>
+              ) : rawDataSource.kind === 'unavailable' ? (
+                <span
+                  className="italic"
+                  title="Generated from raw data (no longer available)"
+                >
+                  Generated from raw data (no longer available)
+                </span>
+              ) : null}
             </div>
             {/* action buttons */}
             <div className="flex items-center justify-around gap-4 relative">

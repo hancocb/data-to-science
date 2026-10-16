@@ -1,9 +1,10 @@
 """Tests for admin CRUD operations."""
-import pytest
+
 from sqlalchemy.orm import Session
 
 from app import crud
-from app.crud.crud_admin import get_site_statistics
+from app.crud.crud_admin import get_project_data_usage, get_site_statistics
+from app.schemas.data_product import DataProductUpdate
 from app.schemas.file_permission import FilePermissionUpdate
 from app.tests.utils.data_product import SampleDataProduct
 from app.tests.utils.flight import create_flight
@@ -23,8 +24,8 @@ def test_get_site_statistics_basic(db: Session) -> None:
     flight1 = create_flight(db, project_id=project1.id)
     flight2 = create_flight(db, project_id=project2.id)
 
-    data_product1 = SampleDataProduct(db, flight=flight1, user=user1, project=project1)
-    data_product2 = SampleDataProduct(db, flight=flight2, user=user2, project=project2)
+    SampleDataProduct(db, flight=flight1, user=user1, project=project1)
+    SampleDataProduct(db, flight=flight2, user=user2, project=project2)
 
     # Get site statistics
     stats = get_site_statistics(db)
@@ -45,9 +46,15 @@ def test_get_site_statistics_public_data_products(db: Session) -> None:
     flight = create_flight(db, project_id=project.id)
 
     # Create 3 data products
-    dp1 = SampleDataProduct(db, flight=flight, user=user, project=project)  # Will be made public and active
-    dp2 = SampleDataProduct(db, flight=flight, user=user, project=project)  # Will be made public but deactivated
-    dp3 = SampleDataProduct(db, flight=flight, user=user, project=project)  # Will remain private
+    dp1 = SampleDataProduct(
+        db, flight=flight, user=user, project=project
+    )  # Will be made public and active
+    dp2 = SampleDataProduct(
+        db, flight=flight, user=user, project=project
+    )  # Will be made public but deactivated
+    SampleDataProduct(
+        db, flight=flight, user=user, project=project
+    )  # Will remain private
 
     # Get initial count
     stats_before = get_site_statistics(db)
@@ -133,3 +140,29 @@ def test_get_site_statistics_excludes_raw_data(db: Session) -> None:
 
     # Count should NOT increase (raw data should not be counted)
     assert count_with_raw == count_with_dp
+
+
+def test_get_project_data_usage_total_includes_inactive_active_excludes(
+    db: Session,
+) -> None:
+    """Total storage counts deactivated (still on disk) data; active does not."""
+    owner = create_user(db)
+    active_dp = SampleDataProduct(db, user=owner)
+    inactive_dp = SampleDataProduct(
+        db, user=owner, project=active_dp.project, flight=active_dp.flight
+    )
+    crud.data_product.update(
+        db, db_obj=active_dp.obj, obj_in=DataProductUpdate(file_size=1000)
+    )
+    crud.data_product.update(
+        db, db_obj=inactive_dp.obj, obj_in=DataProductUpdate(file_size=500)
+    )
+    crud.data_product.deactivate(db, data_product_id=inactive_dp.obj.id)
+
+    rows = get_project_data_usage(db)
+    owner_row = next(row for row in rows if row["id"] == owner.id)
+
+    # Total counts both (the deactivated file remains on disk pending purge).
+    assert owner_row["total_storage"] == 1500
+    # Active counts only the live data product.
+    assert owner_row["total_active_storage"] == 1000

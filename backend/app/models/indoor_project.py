@@ -1,14 +1,12 @@
 import uuid
 from datetime import datetime
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-
 from app.db.base_class import Base
-
 
 if TYPE_CHECKING:
     from .project_member import ProjectMember
@@ -42,6 +40,7 @@ class IndoorProject(Base):
         cascade="all, delete-orphan",
         primaryjoin="and_(ProjectMember.project_type == 'INDOOR_PROJECT', ProjectMember.project_uuid == IndoorProject.id)",
         foreign_keys="[ProjectMember.project_uuid]",
+        overlaps="members",
     )
 
     def __repr__(self) -> str:

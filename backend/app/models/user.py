@@ -1,28 +1,28 @@
 import uuid
-from typing import List, Optional, TYPE_CHECKING
-
 from datetime import datetime
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import column_property, Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
 
 from app.db.base_class import Base
 from app.models.utils.utcnow import utcnow
-
 
 if TYPE_CHECKING:
     from .annotation import Annotation
     from .api_key import APIKey
     from .campaign import Campaign
+    from .data_product_like import DataProductLike
+    from .data_product_view import DataProductView
     from .flight import Flight
     from .indoor_project import IndoorProject
-    from .project_like import ProjectLike
-    from .team import Team
-    from .team_member import TeamMember
     from .project import Project
+    from .project_like import ProjectLike
     from .project_member import ProjectMember
     from .refresh_token import RefreshToken
+    from .team import Team
+    from .team_member import TeamMember
     from .upload import Upload
     from .user_extension import UserExtension
 
@@ -51,9 +51,7 @@ class User(Base):
         Boolean, default=False, nullable=False
     )
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    pending_email: Mapped[Optional[str]] = mapped_column(
-        String(255), nullable=True
-    )
+    pending_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=utcnow(), nullable=False
     )
@@ -67,7 +65,7 @@ class User(Base):
     annotations: Mapped[List["Annotation"]] = relationship(
         back_populates="created_by", passive_deletes=True
     )
-    api_key: Mapped["APIKey"] = relationship(
+    api_keys: Mapped[List["APIKey"]] = relationship(
         back_populates="owner", cascade="all, delete"
     )
     campaigns: Mapped[List["Campaign"]] = relationship(
@@ -81,6 +79,12 @@ class User(Base):
     )
     indoor_projects: Mapped[List["IndoorProject"]] = relationship(
         back_populates="owner", cascade="all, delete"
+    )
+    data_product_likes: Mapped[List["DataProductLike"]] = relationship(
+        back_populates="user", cascade="all, delete"
+    )
+    data_product_views: Mapped[List["DataProductView"]] = relationship(
+        back_populates="user", cascade="all, delete"
     )
     project_likes: Mapped[List["ProjectLike"]] = relationship(
         back_populates="user", cascade="all, delete"

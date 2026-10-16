@@ -13,9 +13,24 @@ D2S uses JSON Web Tokens (JWT) for session-based authentication:
 
 Tokens are signed using the `SECRET_KEY` environment variable. In production, `HTTP_COOKIE_SECURE` should be set to `1` to ensure cookies are only sent over HTTPS.
 
+### Cross-origin login
+
+By default the API answers cross-origin requests with `Access-Control-Allow-Origin: *` and allows only anonymous `GET` requests, which browsers reject for credentialed (cookie-bearing) requests. To let a partner web app log in from another origin, list its origin(s) in the `BACKEND_CORS_ORIGINS` environment variable. When set, the API returns the explicit origin together with `Access-Control-Allow-Credentials: true` and permits all methods, so the browser will send the auth cookie. This requires `HTTP_COOKIE_SECURE=1` (the production default), which issues the cookie with `SameSite=None; Secure; Partitioned` so it can be sent cross-origin. The `Partitioned` attribute ([CHIPS](https://developer.mozilla.org/en-US/docs/Web/Privacy/Guides/Privacy_sandbox/Partitioned_cookies)) keys the cookie by the partner app's top-level site, so the session survives even when the browser blocks third-party cookies (Safari and Firefox by default, Chrome in Incognito or with "Block third-party cookies" enabled). It also means a session started from a partner app is separate from one started on the D2S site itself. The partner app must send requests with `credentials: "include"`. See [Configuration](../reference/configuration.md) for details.
+
 ### API keys
 
-For programmatic access, users can generate API keys. These are passed via the `X-API-Key` header and currently support a limited set of read-only endpoints (project details, flight listings, vector layer access).
+For programmatic access, users can create up to five API keys from their profile page. Each key has an optional name and any combination of four scopes:
+
+| Scope | Allows |
+|-------|--------|
+| `read` | `GET`, `HEAD`, and `OPTIONS` requests, including static file downloads |
+| `create` | `POST` requests |
+| `update` | `PUT` and `PATCH` requests |
+| `delete` | `DELETE` requests |
+
+The scopes are independent: no scope implies another. This lets a key that cannot be kept secret, such as one built into a mobile app, be limited to `create` alone. Anyone who extracts it can add records but cannot read other data, change existing records, or delete anything. A request made with a key that lacks the required scope is rejected with `403 Forbidden`. Scopes can be changed at any time without changing the key itself. Keys created before scopes were introduced were given all four scopes.
+
+Keys are passed via the `X-API-Key` header, or the `API_KEY` query parameter for static files (useful for QGIS). They work only on the endpoints listed in [API key authentication](../reference/roles-permissions.md#api-key-authentication), and the key holder's project role still applies. Keys are managed through the `/api/v1/api-keys` endpoints, which require a logged-in session and cannot be called with an API key.
 
 ### Single-use tokens
 

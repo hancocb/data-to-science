@@ -1,4 +1,5 @@
 import os
+from email.utils import getaddresses, parseaddr
 from typing import List
 from unittest.mock import AsyncMock, patch
 
@@ -12,6 +13,7 @@ from app.core.config import settings
 from app.core.mail import fm
 from app.crud.crud_user import find_profile_img
 from app.schemas.user import UserUpdate
+from app.tests.conftest import pytest_requires_mail
 from app.tests.utils.extension import (
     create_extension,
     create_team_extension,
@@ -20,7 +22,6 @@ from app.tests.utils.extension import (
 from app.tests.utils.team import create_team
 from app.tests.utils.team_member import create_team_member
 from app.tests.utils.user import create_user
-from app.tests.conftest import pytest_requires_mail
 from app.tests.utils.utils import random_email, random_full_name, random_password
 
 # Turnstile test tokens
@@ -56,7 +57,7 @@ def test_create_user_new_email(client: TestClient, db: Session) -> None:
             outbox[0]["from"]
             == settings.MAIL_FROM_NAME + " <" + settings.MAIL_FROM + ">"
         )
-        assert outbox[0]["To"] == user.email
+        assert parseaddr(outbox[0]["To"])[1] == user.email
         assert (
             outbox[0]["Subject"]
             == "Welcome to Data to Science - please confirm your email"
@@ -65,7 +66,9 @@ def test_create_user_new_email(client: TestClient, db: Session) -> None:
             outbox[1]["from"]
             == settings.MAIL_FROM_NAME + " <" + settings.MAIL_FROM + ">"
         )
-        assert outbox[1]["To"] == settings.MAIL_ADMINS.replace(",", ", ")
+        assert [
+            addr for _, addr in getaddresses([outbox[1]["To"]])
+        ] == settings.MAIL_ADMINS.split(",")
         assert (
             outbox[1]["Subject"]
             == f"New Data to Science account awaiting approval ({api_domain})"
@@ -145,6 +148,16 @@ def test_get_users_normal_current_user(
     current_user = response.json()
     assert current_user
     assert settings.EMAIL_TEST_USER == current_user["email"]
+    # d2spy reads this key directly, so it must be present even when null
+    assert "api_access_token" in current_user
+
+
+def test_api_access_token_marked_deprecated_in_openapi(client: TestClient) -> None:
+    """Verify the api_access_token field is flagged deprecated in the API schema."""
+    response = client.get(f"{settings.API_V1_STR}/openapi.json")
+    assert response.status_code == status.HTTP_200_OK
+    user_schema = response.json()["components"]["schemas"]["User"]
+    assert user_schema["properties"]["api_access_token"]["deprecated"] is True
 
 
 def test_read_users_without_query(
@@ -182,9 +195,9 @@ def test_read_users_with_query(
     client: TestClient, db: Session, normal_user_access_token: str
 ) -> None:
     """Verify retrieval of users with a query parameter."""
-    user1 = create_user(db, first_name="Bill", last_name="Harding")
-    user2 = create_user(db, first_name="Jo", last_name="Harding")
-    user3 = create_user(db, first_name="Dustin", last_name="Davis")
+    create_user(db, first_name="Bill", last_name="Harding")
+    create_user(db, first_name="Jo", last_name="Harding")
+    create_user(db, first_name="Dustin", last_name="Davis")
     # ensure current user not randomly assigned name that matches query term
     current_user = get_current_user(db, normal_user_access_token)
     crud.user.update(
@@ -375,8 +388,9 @@ def test_create_user_with_valid_turnstile_token(
         }
     )
 
-    with patch("app.core.security.validate_turnstile", mock_validate), patch.object(
-        settings, "TURNSTILE_SECRET_KEY", "test-secret-key"
+    with (
+        patch("app.core.security.validate_turnstile", mock_validate),
+        patch.object(settings, "TURNSTILE_SECRET_KEY", "test-secret-key"),
     ):
         response = client.post(f"{settings.API_V1_STR}/users/", json=data)
 
@@ -407,8 +421,9 @@ def test_create_user_with_invalid_turnstile_token_1(
         return_value={"success": False, "error-codes": ["invalid-input-response"]}
     )
 
-    with patch("app.core.security.validate_turnstile", mock_validate), patch.object(
-        settings, "TURNSTILE_SECRET_KEY", "test-secret-key"
+    with (
+        patch("app.core.security.validate_turnstile", mock_validate),
+        patch.object(settings, "TURNSTILE_SECRET_KEY", "test-secret-key"),
     ):
         response = client.post(f"{settings.API_V1_STR}/users/", json=data)
 
@@ -437,8 +452,9 @@ def test_create_user_with_invalid_turnstile_token_2(
         return_value={"success": False, "error-codes": ["timeout-or-duplicate"]}
     )
 
-    with patch("app.core.security.validate_turnstile", mock_validate), patch.object(
-        settings, "TURNSTILE_SECRET_KEY", "test-secret-key"
+    with (
+        patch("app.core.security.validate_turnstile", mock_validate),
+        patch.object(settings, "TURNSTILE_SECRET_KEY", "test-secret-key"),
     ):
         response = client.post(f"{settings.API_V1_STR}/users/", json=data)
 
@@ -524,7 +540,9 @@ def test_create_user_with_turnstile_token_when_turnstile_not_configured(
 def test_create_user_with_registration_intent(client: TestClient, db: Session) -> None:
     """Verify new user is created with registration_intent."""
     full_name = random_full_name()
-    registration_intent = "I want to use this platform for analyzing drone imagery from my research."
+    registration_intent = (
+        "I want to use this platform for analyzing drone imagery from my research."
+    )
     data = {
         "email": random_email(),
         "password": random_password(),
@@ -577,7 +595,7 @@ def test_create_user_with_registration_intent_too_short(
     }
     with patch.object(settings, "TURNSTILE_SECRET_KEY", None):
         response = client.post(f"{settings.API_V1_STR}/users/", json=data)
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 def test_create_user_with_registration_intent_too_long(
@@ -594,7 +612,7 @@ def test_create_user_with_registration_intent_too_long(
     }
     with patch.object(settings, "TURNSTILE_SECRET_KEY", None):
         response = client.post(f"{settings.API_V1_STR}/users/", json=data)
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 def test_create_user_with_registration_intent_empty_string(
@@ -612,7 +630,7 @@ def test_create_user_with_registration_intent_empty_string(
     with patch.object(settings, "TURNSTILE_SECRET_KEY", None):
         response = client.post(f"{settings.API_V1_STR}/users/", json=data)
     # This should fail validation since empty strings don't meet min_length
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 def test_create_user_with_registration_intent_whitespace_normalized(
@@ -620,8 +638,12 @@ def test_create_user_with_registration_intent_whitespace_normalized(
 ) -> None:
     """Verify leading/trailing whitespace is stripped from registration_intent."""
     full_name = random_full_name()
-    intent_with_whitespace = "  I want to analyze drone imagery for agricultural research projects.  "
-    expected_intent = "I want to analyze drone imagery for agricultural research projects."
+    intent_with_whitespace = (
+        "  I want to analyze drone imagery for agricultural research projects.  "
+    )
+    expected_intent = (
+        "I want to analyze drone imagery for agricultural research projects."
+    )
     data = {
         "email": random_email(),
         "password": random_password(),
@@ -652,7 +674,7 @@ def test_create_user_with_registration_intent_only_whitespace(
     with patch.object(settings, "TURNSTILE_SECRET_KEY", None):
         response = client.post(f"{settings.API_V1_STR}/users/", json=data)
     # Should fail since whitespace doesn't meet min_length at API layer
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 def test_create_user_with_name_whitespace_normalized(

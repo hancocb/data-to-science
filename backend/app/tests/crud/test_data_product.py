@@ -1,19 +1,25 @@
 import os
 from datetime import datetime, timezone
+from urllib.parse import quote_plus
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app import crud
 from app.core.config import settings
+from app.core.exceptions import PermissionDenied
 from app.models.data_product import DataProduct
 from app.models.job import Job
+from app.schemas.data_product import DataProductCreate
 from app.schemas.file_permission import FilePermissionUpdate
 from app.schemas.job import State, Status
-from app.tests.utils.flight import create_flight
 from app.tests.utils.data_product import SampleDataProduct, test_stac_props_dsm
+from app.tests.utils.flight import create_flight
 from app.tests.utils.job import create_job
+from app.tests.utils.raw_data import SampleRawData
 from app.tests.utils.user import create_user
+from app.tests.utils.utils import expected_tile_signature
 
 
 def test_create_data_product(db: Session) -> None:
@@ -28,6 +34,26 @@ def test_create_data_product(db: Session) -> None:
     assert data_product.obj.created_at is not None
     assert data_product.obj.updated_at is not None
     assert data_product.obj.updated_at >= data_product.obj.created_at
+
+
+def test_create_data_product_with_raw_data_id(db: Session) -> None:
+    raw_data = SampleRawData(db)
+    data_product = crud.data_product.create_with_flight(
+        db,
+        obj_in=DataProductCreate(
+            data_type="ortho",
+            filepath="null",
+            original_filename="ortho.tif",
+            raw_data_id=raw_data.obj.id,
+        ),
+        flight_id=raw_data.flight.id,
+    )
+    assert data_product.raw_data_id == raw_data.obj.id
+
+
+def test_create_data_product_defaults_raw_data_id_to_null(db: Session) -> None:
+    data_product = SampleDataProduct(db, data_type="ortho")
+    assert data_product.obj.raw_data_id is None
 
 
 def test_read_data_product(db: Session) -> None:
@@ -51,6 +77,14 @@ def test_read_data_product(db: Session) -> None:
     )
     assert hasattr(stored_data_product, "url")
     assert hasattr(stored_data_product, "user_style")
+    # Signature is required for the map to request secure COG tiles; without it
+    # the tile URL has an empty secure value and expires=0 (403 URL expired).
+    assert hasattr(stored_data_product, "signature")
+    assert stored_data_product.signature["expires"]
+    assert stored_data_product.signature["secure"] == expected_tile_signature(
+        stored_data_product.signature["expires"],
+        f"{stored_data_product.id}{quote_plus(stored_data_product.filepath)}",
+    )
     assert stored_data_product.created_at is not None
     assert stored_data_product.updated_at is not None
 
@@ -198,6 +232,22 @@ def test_deactivate_data_product(db: Session) -> None:
     assert data_product3.deactivated_at.replace(tzinfo=timezone.utc) < datetime.now(
         timezone.utc
     )
+
+
+def test_deactivate_data_product_in_published_project_is_refused(db: Session) -> None:
+    """A data product in a published project cannot be deactivated, whatever
+    calls the CRUD method."""
+    user = create_user(db)
+    data_product = SampleDataProduct(db, user=user)
+    crud.project.update_project_visibility(
+        db, project_id=data_product.project.id, is_public=True
+    )
+
+    with pytest.raises(PermissionDenied):
+        crud.data_product.deactivate(db, data_product_id=data_product.obj.id)
+
+    data_product_in_db = crud.data_product.get(db, id=data_product.obj.id)
+    assert data_product_in_db and data_product_in_db.is_active is True
 
 
 def test_lazy_migration_persists_to_database_on_get_single(db: Session) -> None:
@@ -426,3 +476,79 @@ def test_lazy_migration_only_runs_once(db: Session) -> None:
     # Both requests should return the same bbox values
     # (In production, the second request uses the cached database value)
     assert first_bbox_value == second_bbox_value
+
+
+def test_update_s3_url_sets_value(db: Session) -> None:
+    dp = SampleDataProduct(db)
+    assert dp.obj.s3_url is None
+
+    crud.data_product.update_s3_url(
+        db,
+        data_product_id=dp.obj.id,
+        s3_url="https://my-bucket.s3.us-east-1.amazonaws.com/d2s/host/file.tif",
+    )
+
+    refreshed = crud.data_product.get(db, id=dp.obj.id)
+    assert refreshed is not None
+    assert refreshed.s3_url == (
+        "https://my-bucket.s3.us-east-1.amazonaws.com/d2s/host/file.tif"
+    )
+
+
+def test_clear_s3_urls_for_project_only_clears_matching_project(db: Session) -> None:
+    project_a = SampleDataProduct(db)
+    project_b = SampleDataProduct(db)
+
+    crud.data_product.update_s3_url(
+        db, data_product_id=project_a.obj.id, s3_url="https://a"
+    )
+    crud.data_product.update_s3_url(
+        db, data_product_id=project_b.obj.id, s3_url="https://b"
+    )
+
+    rowcount = crud.data_product.clear_s3_urls_for_project(
+        db, project_id=project_a.project.id
+    )
+
+    assert rowcount == 1
+    assert crud.data_product.get(db, id=project_a.obj.id).s3_url is None
+    # Other project untouched
+    assert crud.data_product.get(db, id=project_b.obj.id).s3_url == "https://b"
+
+
+def test_clear_s3_urls_for_project_zero_when_nothing_to_clear(db: Session) -> None:
+    dp = SampleDataProduct(db)
+    rowcount = crud.data_product.clear_s3_urls_for_project(db, project_id=dp.project.id)
+    assert rowcount == 0
+
+
+def test_get_data_products_with_s3_urls_for_project(db: Session) -> None:
+    dp_uploaded = SampleDataProduct(db)
+    flight = create_flight(db, project_id=dp_uploaded.project.id)
+    dp_not_uploaded = SampleDataProduct(db, project=dp_uploaded.project, flight=flight)
+
+    crud.data_product.update_s3_url(
+        db,
+        data_product_id=dp_uploaded.obj.id,
+        s3_url="https://my-bucket.s3.us-east-1.amazonaws.com/key",
+    )
+
+    results = crud.data_product.get_data_products_with_s3_urls_for_project(
+        db, project_id=dp_uploaded.project.id
+    )
+
+    result_ids = {dp.id for dp in results}
+    assert dp_uploaded.obj.id in result_ids
+    assert dp_not_uploaded.obj.id not in result_ids
+
+
+def test_get_data_products_with_s3_urls_excludes_inactive(db: Session) -> None:
+    dp = SampleDataProduct(db)
+    crud.data_product.update_s3_url(db, data_product_id=dp.obj.id, s3_url="https://x")
+    crud.data_product.deactivate(db, data_product_id=dp.obj.id)
+
+    results = crud.data_product.get_data_products_with_s3_urls_for_project(
+        db, project_id=dp.project.id
+    )
+
+    assert dp.obj.id not in {row.id for row in results}

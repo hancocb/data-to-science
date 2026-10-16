@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Dict, Optional
 
 from geojson_pydantic import Feature, Polygon
-from pydantic import BaseModel, Field, field_validator, ValidationInfo, UUID4
+from pydantic import UUID4, BaseModel, Field, ValidationInfo, field_validator
 
 from app.schemas.location import LocationCreate
 from app.schemas.role import Role
@@ -101,6 +101,21 @@ class Projects(BaseModel, from_attributes=True):
     title: str
     liked: Optional[bool] = False
     team: Optional[Team] = None
+
+
+# schema returned for publicly visible published projects (no auth context)
+class PublishedProjects(BaseModel, from_attributes=True):
+    id: UUID4
+    centroid: Centroid
+    title: str
+    description: str
+    data_product_count: int = 0
+    flight_count: int = 0
+    planting_date: Optional[date] = None
+    harvest_date: Optional[date] = None
+    most_recent_flight: Optional[date] = None
+    team: Optional[Team] = None
+    field: Optional[Feature[Polygon, Dict]] = None
 
 
 # additional properties stored in DB

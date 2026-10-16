@@ -1,17 +1,16 @@
 import base64
-import hmac
 import hashlib
-import time
-import os
+import hmac
 import logging
+import os
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, cast, Dict, Optional, Tuple, Literal
+from typing import Any, Dict, Literal, Optional, Tuple, cast
 from uuid import UUID
 
 import httpx
-from fastapi import Request, Response, status, HTTPException
-from fastapi.exceptions import HTTPException
+from fastapi import HTTPException, Request, Response, status
 from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
 from fastapi.security import OAuth2
 from fastapi.security.utils import get_authorization_scheme_param
@@ -26,9 +25,15 @@ from app.models.single_use_token import SingleUseToken
 
 logger = logging.getLogger("__name__")
 
+# Use bcrypt's minimum cost factor under the test suite. Hashing passwords at
+# the production cost factor dominates test runtime (every user fixture hashes a
+# password); the minimum factor still exercises the real bcrypt code path while
+# running ~hundreds of times faster.
+_bcrypt_rounds = 4 if os.environ.get("RUNNING_TESTS") == "1" else 12
 pwd_context = CryptContext(
     schemes=["bcrypt"],
     deprecated="auto",  # only allow bcrypt
+    bcrypt__rounds=_bcrypt_rounds,
 )
 
 ALGORITHM = "HS256"
@@ -87,9 +92,19 @@ def create_refresh_token(
     return token
 
 
-def decode_token(token: str) -> dict[str, Any]:
-    """Decode JWT token and return payload."""
-    return jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+def decode_token(token: str, verify_exp: bool = True) -> dict[str, Any]:
+    """Decode JWT token and return payload.
+
+    The signature is always verified. ``verify_exp=False`` skips only the
+    expiration check, which logout uses so an expired refresh token's ``jti`` can
+    still be extracted and revoked in the database.
+    """
+    return jwt.decode(
+        token,
+        settings.SECRET_KEY,
+        algorithms=[ALGORITHM],
+        options={"verify_exp": verify_exp},
+    )
 
 
 def sign_map_tile_payload(payload: str, expiration: int = 600) -> Tuple[str, int]:
@@ -134,7 +149,9 @@ def get_token_hash(token: str, salt: str) -> str:
 
 def check_token_expired(token: SingleUseToken, minutes: int = 60) -> bool:
     """Check if token is older than value passed in minutes (defaults to 1 hour)."""
-    return datetime.now(tz=timezone.utc) > (token.created_at + timedelta(minutes=minutes))
+    return datetime.now(tz=timezone.utc) > (
+        token.created_at + timedelta(minutes=minutes)
+    )
 
 
 def validate_token_and_get_payload(token: str, expected_type: str) -> dict[str, Any]:
@@ -217,20 +234,20 @@ def get_user_from_token_payload(db: Session, payload: dict[str, Any]):
     return user
 
 
-def set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
-    """Set authentication cookies with proper security settings.
+def _resolve_cookie_security() -> tuple[bool, Literal["lax", "strict", "none"], bool]:
+    """Resolve the secure/samesite/partitioned cookie attributes from the environment.
 
-    Args:
-        response: FastAPI Response object
-        access_token: JWT access token
-        refresh_token: JWT refresh token
+    Production (HTTPS) issues ``Secure``, ``SameSite=None``, ``Partitioned`` cookies
+    so they work cross-origin even when the browser blocks third-party cookies.
+    Tests and non-HTTPS deployments fall back to ``secure=False``, ``samesite="lax"``
+    and no ``Partitioned`` (it requires ``Secure``). Setting and deleting auth
+    cookies must use the same attributes.
     """
     # Import here to avoid circular imports
     from app.api.utils import str_to_bool
 
-    # Toggle secure off if running tests
     secure_cookie = True
-    samesite: Literal["lax", "strict", "none"] | None = "none"
+    samesite: Literal["lax", "strict", "none"] = "none"
     try:
         if str_to_bool(os.environ.get("RUNNING_TESTS", False)) or not str_to_bool(
             os.environ.get("HTTP_COOKIE_SECURE", True)
@@ -240,22 +257,83 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str) 
     except ValueError:
         logger.exception("Defaulting to secure cookie")
 
-    # Set access token cookie
+    return secure_cookie, samesite, secure_cookie
+
+
+def _set_auth_cookie(
+    response: Response,
+    key: str,
+    value: str = "",
+    max_age: int | None = None,
+    expires: int | None = None,
+    partitioned: bool | None = None,
+) -> None:
+    """Set one auth cookie with the environment's security attributes.
+
+    Starlette only accepts ``partitioned=True`` on Python 3.14+, so the attribute
+    is appended to the emitted ``Set-Cookie`` header instead.
+    """
+    secure_cookie, samesite, env_partitioned = _resolve_cookie_security()
+    if partitioned is None:
+        partitioned = env_partitioned
     response.set_cookie(
-        key="access_token",
-        value=f"Bearer {access_token}",
+        key=key,
+        value=value,
+        max_age=max_age,
+        expires=expires,
+        path="/",
         httponly=True,
         secure=secure_cookie,
         samesite=samesite,
     )
-    # Set refresh token cookie
-    response.set_cookie(
-        key="refresh_token",
-        value=f"Bearer {refresh_token}",
-        httponly=True,
-        secure=secure_cookie,
-        samesite=samesite,
+    if partitioned:
+        name, header = response.raw_headers[-1]
+        response.raw_headers[-1] = (name, header + b"; Partitioned")
+
+
+def set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+    """Set authentication cookies with proper security settings.
+
+    Args:
+        response: FastAPI Response object
+        access_token: JWT access token
+        refresh_token: JWT refresh token
+    """
+    _expire_legacy_auth_cookies(response)
+    _set_auth_cookie(response, "access_token", f"Bearer {access_token}")
+    # Unlike the access token, give the refresh cookie an explicit max_age so it
+    # persists across browser sessions for the full refresh token lifetime;
+    # otherwise it becomes a session cookie and is dropped when the browser session
+    # ends, forcing the user to log in again on their next visit.
+    _set_auth_cookie(
+        response,
+        "refresh_token",
+        f"Bearer {refresh_token}",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
     )
+
+
+def _expire_legacy_auth_cookies(response: Response) -> None:
+    """Expire pre-Partitioned auth cookies so browsers don't send both variants.
+
+    A partitioned cookie does not replace an unpartitioned one of the same name, so
+    this must precede the real ``Set-Cookie`` for browsers that ignore the attribute.
+    """
+    _, _, partitioned = _resolve_cookie_security()
+    if not partitioned:
+        return
+    for key in ("access_token", "refresh_token"):
+        _set_auth_cookie(response, key, max_age=0, expires=0, partitioned=False)
+
+
+def delete_auth_cookies(response: Response) -> None:
+    """Clear the auth cookies, mirroring the attributes used to set them.
+
+    Browsers only clear a cookie when the deletion carries the same attributes.
+    """
+    _expire_legacy_auth_cookies(response)
+    for key in ("access_token", "refresh_token"):
+        _set_auth_cookie(response, key, max_age=0, expires=0)
 
 
 async def validate_turnstile(

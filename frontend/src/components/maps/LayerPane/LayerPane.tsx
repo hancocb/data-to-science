@@ -28,24 +28,24 @@ export default function LayerPane({
     activeMapToolDispatch,
     activeProject,
     activeProjectDispatch,
+    pointCloudViewer,
     projects,
     projectsLoaded,
   } = useMapContext();
 
   const { state } = useLocation();
 
-  // Hide the pane when a point cloud is active or when the compare tool is active
+  // Hide the pane for full-screen viewers (Potree, panoramic, 3dgs) and compare mode
   useEffect(() => {
-    if (
-      (activeDataProduct &&
-        (activeDataProduct.data_type === 'point_cloud' ||
-          activeDataProduct.data_type === 'panoramic' ||
-          activeDataProduct.data_type === '3dgs')) ||
-      activeMapTool === 'compare'
-    ) {
+    const isFullScreenViewer =
+      activeDataProduct?.data_type === 'panoramic' ||
+      activeDataProduct?.data_type === '3dgs' ||
+      (activeDataProduct?.data_type === 'point_cloud' &&
+        pointCloudViewer === 'potree');
+    if (isFullScreenViewer || activeMapTool === 'compare') {
       toggleHidePane(true);
     }
-  }, [activeDataProduct, activeMapTool, toggleHidePane]);
+  }, [activeDataProduct, activeMapTool, pointCloudViewer, toggleHidePane]);
 
   // Set the active project and data product when a user navigates to
   // homepage with a project and data product in the URL (e.g. from a
@@ -98,14 +98,18 @@ export default function LayerPane({
         <div className="h-full text-slate-700">
           <div className="h-11 flex items-center justify-between p-2.5">
             {activeProject ? (
-              <button type="button" onClick={handleReturnClick}>
+              <button
+                type="button"
+                onClick={handleReturnClick}
+                className="inline-flex items-center justify-center max-md:h-11 max-md:w-11"
+              >
                 <ArrowUturnLeftIcon className="h-6 w-6" />
               </button>
             ) : (
               <span />
             )}
             <XMarkIcon
-              className="h-6 w-6 cursor-pointer float-right"
+              className="h-6 w-6 cursor-pointer float-right max-md:hidden"
               onClick={handleToggleClick}
             />
           </div>

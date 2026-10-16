@@ -21,6 +21,8 @@ import {
   FlightsAction,
   GeoRasterIdAction,
   MapTool,
+  PointCloudViewer,
+  PointCloudViewerAction,
   ProjectsAction,
   ProjectsLoadedAction,
   ProjectFilterSelectionAction,
@@ -28,7 +30,7 @@ import {
   SelectedTeamIdsAction,
   TileScaleAction,
 } from './Maps';
-import { areProjectsEqual } from './utils';
+import { areProjectsEqual, isPublicOnly } from './utils';
 
 function activeDataProductReducer(
   state: DataProduct | null,
@@ -92,6 +94,15 @@ function flightsReducer(state: Flight[], action: FlightsAction) {
     }
     case 'clear': {
       return [];
+    }
+    case 'update_view_count': {
+      const { dataProductId, viewCount } = action.payload;
+      return state.map((flight) => ({
+        ...flight,
+        data_products: flight.data_products.map((dp) =>
+          dp.id === dataProductId ? { ...dp, view_count: viewCount } : dp
+        ),
+      }));
     }
     default: {
       return state;
@@ -256,6 +267,20 @@ function tileScaleReducer(state: number, action: TileScaleAction) {
   }
 }
 
+function pointCloudViewerReducer(
+  state: PointCloudViewer,
+  action: PointCloudViewerAction
+) {
+  switch (action.type) {
+    case 'set':
+      return action.payload ?? 'potree';
+    case 'clear':
+      return 'potree' as PointCloudViewer;
+    default:
+      return state;
+  }
+}
+
 const context: {
   activeDataProduct: DataProduct | null;
   activeDataProductDispatch: React.Dispatch<ActiveDataProductAction>;
@@ -264,10 +289,13 @@ const context: {
   activeProject: ProjectItem | null;
   activeProjectDispatch: React.Dispatch<ActiveProjectAction>;
   flights: Flight[];
+  flightsDispatch: React.Dispatch<FlightsAction>;
   geoRasterId: string;
   geoRasterIdDispatch: React.Dispatch<GeoRasterIdAction>;
   mapViewProperties: MapViewPropertiesState;
   mapViewPropertiesDispatch: React.Dispatch<MapViewPropertiesAction>;
+  pointCloudViewer: PointCloudViewer;
+  pointCloudViewerDispatch: React.Dispatch<PointCloudViewerAction>;
   projectLayers: MapLayerFeatureCollection[];
   projectLayersDispatch: React.Dispatch<ProjectLayersAction>;
   projects: ProjectItem[] | null;
@@ -290,10 +318,13 @@ const context: {
   activeProject: null,
   activeProjectDispatch: () => {},
   flights: [],
+  flightsDispatch: () => {},
   geoRasterId: '',
   geoRasterIdDispatch: () => {},
   mapViewProperties: null,
   mapViewPropertiesDispatch: () => {},
+  pointCloudViewer: 'potree',
+  pointCloudViewerDispatch: () => {},
   projectLayers: [],
   projectLayersDispatch: () => {},
   projects: null,
@@ -347,7 +378,7 @@ export function MapContextProvider({
   );
   const [projectFilterSelection, projectFilterSelectionDispatch] = useReducer(
     projectFilterSelectionReducer,
-    []
+    ['publicProjects']
   );
   const [projectsVisible, projectsVisibleDispatch] = useReducer(
     projectsVisibleReducer,
@@ -358,14 +389,17 @@ export function MapContextProvider({
     []
   );
   const [tileScale, tileScaleDispatch] = useReducer(tileScaleReducer, 2);
+  const [pointCloudViewer, pointCloudViewerDispatch] = useReducer(
+    pointCloudViewerReducer,
+    'potree'
+  );
 
-  async function getFlights(projectId) {
+  async function getFlights(project: ProjectItem) {
     try {
-      const response = await axios.get(
-        `${
-          import.meta.env.VITE_API_V1_STR
-        }/projects/${projectId}/flights?include_all=False`
-      );
+      const url = isPublicOnly(project)
+        ? `${import.meta.env.VITE_API_V1_STR}/public/projects/${project.id}/flights`
+        : `${import.meta.env.VITE_API_V1_STR}/projects/${project.id}/flights?include_all=False`;
+      const response = await axios.get(url);
       if (response) {
         flightsDispatch({ type: 'set', payload: response.data });
       }
@@ -377,16 +411,16 @@ export function MapContextProvider({
   // fetches flights for active project
   useEffect(() => {
     if (activeProject) {
-      getFlights(activeProject.id);
+      getFlights(activeProject);
     }
   }, [activeProject]);
 
-  // update flights/data products to check for changes to saved styles
+  // reset point cloud viewer choice when no point cloud is active
   useEffect(() => {
-    if (activeDataProduct && activeProject) {
-      getFlights(activeProject.id);
+    if (!activeDataProduct || activeDataProduct.data_type !== 'point_cloud') {
+      pointCloudViewerDispatch({ type: 'clear' });
     }
-  }, [activeDataProduct, activeProject]);
+  }, [activeDataProduct]);
 
   const contextValue = useMemo(
     () => ({
@@ -397,11 +431,14 @@ export function MapContextProvider({
       activeProject,
       activeProjectDispatch,
       flights,
+      flightsDispatch,
       geoRasterId,
       geoRasterIdDispatch,
 
       mapViewProperties,
       mapViewPropertiesDispatch,
+      pointCloudViewer,
+      pointCloudViewerDispatch,
       projectFilterSelection,
       projectFilterSelectionDispatch,
       projectLayers,
@@ -424,6 +461,7 @@ export function MapContextProvider({
       flights,
       geoRasterId,
       mapViewProperties,
+      pointCloudViewer,
       projectFilterSelection,
       projectLayers,
       projects,

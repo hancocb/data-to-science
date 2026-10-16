@@ -8,7 +8,15 @@ import {
   useRasterSymbologyContext,
 } from './RasterSymbologyContext';
 
-import { getTitilerQueryParams } from './utils';
+import {
+  getMultibandMinMax,
+  getSingleBandMinMax,
+  getTitilerQueryParams,
+  getTitilerTileSize,
+  isPublicOnly,
+  isSingleBand,
+  TITILER_TILE_SIZE,
+} from './utils';
 import { useMapLayerContext } from './MapLayersContext';
 import { useMapContext } from './MapContext';
 
@@ -26,17 +34,52 @@ function constructRasterTileUrl(
   const tms = 'WebMercatorQuad';
 
   // parts of path for fetching tiles
-  const resourcePath = `/cog/tiles/${tms}/{z}/{x}/{y}@${tileScale}x`;
+  const resourcePath = `/cog/tiles/${tms}/{z}/{x}/{y}`;
   const basePath = window.location.origin;
   const queryParams = getTitilerQueryParams(
     cogUrl,
     dataProduct,
     symbologySettings
   );
+  queryParams.append('tilesize', getTitilerTileSize(tileScale).toString());
   // add query params to base url
   const url = `${basePath}${resourcePath}?${queryParams.toString()}`;
 
   return url;
+}
+
+function constructPublicRasterTileUrl(
+  dataProduct: DataProduct,
+  symbologySettings: SingleBandSymbology | MultibandSymbology | null,
+  tileScale: number
+): string {
+  if (!symbologySettings) return '';
+
+  const apiV1Str = import.meta.env.VITE_API_V1_STR;
+  const basePath = window.location.origin;
+  const queryParams = new URLSearchParams();
+  queryParams.append('data_product_id', dataProduct.id);
+  queryParams.append('scale', tileScale.toString());
+
+  if (isSingleBand(dataProduct)) {
+    const s = symbologySettings as SingleBandSymbology;
+    queryParams.append('bidx', '1');
+    queryParams.append('colormap_name', s.colorRamp);
+    queryParams.append(
+      'rescale',
+      getSingleBandMinMax(dataProduct.stac_properties, s).flat().join(',')
+    );
+  } else {
+    const s = symbologySettings as MultibandSymbology;
+    queryParams.append('bidx', s.red.idx.toString());
+    queryParams.append('bidx', s.green.idx.toString());
+    queryParams.append('bidx', s.blue.idx.toString());
+    getMultibandMinMax(dataProduct.stac_properties, s).forEach((rescale) => {
+      queryParams.append('rescale', `${rescale}`);
+    });
+  }
+
+  return `${basePath}${apiV1Str}/public/maptiles?z={z}&x={x}&y={y}&${queryParams.toString()}`;
 }
 
 export default function ProjectRasterTiles({
@@ -50,7 +93,7 @@ export default function ProjectRasterTiles({
 }) {
   const { current: map } = useMap();
 
-  const { tileScale } = useMapContext();
+  const { activeProject, tileScale } = useMapContext();
   const {
     state: { layers },
   } = useMapLayerContext();
@@ -60,8 +103,12 @@ export default function ProjectRasterTiles({
   const { isLoaded, symbology } = state[dataProduct.id] || {};
 
   const tiles = useMemo(
-    () => [constructRasterTileUrl(dataProduct, symbology, tileScale)],
-    [dataProduct, symbology, tileScale]
+    () => [
+      isPublicOnly(activeProject)
+        ? constructPublicRasterTileUrl(dataProduct, symbology, tileScale)
+        : constructRasterTileUrl(dataProduct, symbology, tileScale),
+    ],
+    [activeProject, dataProduct, symbology, tileScale]
   );
 
   // Calculate the beforeId for positioning the raster
@@ -107,7 +154,7 @@ export default function ProjectRasterTiles({
       tiles={tiles}
       maxzoom={24}
       minzoom={0}
-      tileSize={256}
+      tileSize={TITILER_TILE_SIZE}
       {...(boundingBox ? { bounds: boundingBox } : {})}
     >
       <Layer

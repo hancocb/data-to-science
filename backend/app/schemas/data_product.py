@@ -1,13 +1,13 @@
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Annotated, Dict, List, Optional, Union
 
 from pydantic import (
+    UUID4,
     AnyHttpUrl,
     BaseModel,
     Field,
-    field_validator,
     ValidationInfo,
-    UUID4,
+    field_validator,
 )
 
 from app.utils.stac import STACProperties
@@ -23,6 +23,7 @@ class DataProductBase(BaseModel):
     filepath: Optional[str] = None
     original_filename: Optional[str] = None
     stac_properties: Optional[STACProperties] = None
+    file_size: Optional[int] = None
     is_active: bool = True
     is_initial_processing_completed: bool = False
 
@@ -33,6 +34,7 @@ class DataProductCreate(DataProductBase):
     filepath: str
     original_filename: str
     stac_properties: Optional[STACProperties] = None
+    raw_data_id: Optional[UUID4] = None
 
 
 # properties to receive via API on update
@@ -50,6 +52,7 @@ class DataProductInDBBase(DataProductBase, from_attributes=True):
     data_type: str
     filepath: str
     flight_id: UUID4
+    raw_data_id: Optional[UUID4] = None
     original_filename: str
     stac_properties: Optional[STACProperties] = None
     user_style: Optional[dict] = None
@@ -64,14 +67,27 @@ class DataProductSignature(BaseModel):
     secure: str
 
 
+class DataProductXMLMetadata(BaseModel):
+    original_filename: str
+    file_size: int
+    content: str
+
+
 class DataProduct(DataProductInDBBase):
     bbox: Optional[List[float]] = None
     crs: Optional[Dict] = None
+    # Safe name for downloads, built from the project, flight date, and data
+    # type. Never derived from original_filename.
+    download_filename: Optional[str] = None
     resolution: Optional[Dict] = None
     public: bool = False
     signature: Optional[DataProductSignature] = None
     status: Optional[str] = None
     url: Optional[AnyHttpUrl] = None
+    liked: bool = False
+    like_count: int = 0
+    view_count: int = 0
+    xml_metadata: Optional[DataProductXMLMetadata] = None
 
 
 # additional properties stored in DB
@@ -83,6 +99,11 @@ class DataProductBoundingBox(BaseModel):
     bounds: List[float]
 
 
+class DataProductPointValue(BaseModel):
+    coordinates: List[float]
+    values: List[Optional[float]]
+
+
 class DataProductBand(BaseModel):
     name: str
     description: str
@@ -90,6 +111,78 @@ class DataProductBand(BaseModel):
 
 class DataProductBands(BaseModel):
     bands: List[DataProductBand]
+
+
+# Symbology values reach GDAL as command arguments and as color table entries,
+# so they are validated as finite numbers here rather than coerced later. Without
+# this, a value of the wrong type raises deep inside the export and surfaces as a
+# 500, and "inf"/"nan" parse cleanly into a color table GDAL cannot use.
+FiniteFloat = Annotated[float, Field(allow_inf_nan=False)]
+
+
+class SymbologyBand(BaseModel):
+    """One color channel of a multiband symbology.
+
+    Mirrors the map's ColorBand type in RasterSymbologyContext.tsx.
+    """
+
+    idx: Optional[int] = None
+    min: Optional[FiniteFloat] = None
+    max: Optional[FiniteFloat] = None
+    userMin: Optional[FiniteFloat] = None
+    userMax: Optional[FiniteFloat] = None
+
+
+class SymbologyCommon(BaseModel):
+    """Settings shared by both symbology shapes.
+
+    Every field is optional because saved user styles predate some of them, and
+    the export already falls back to a default range when values are missing.
+    Unrecognized keys are ignored rather than rejected, so the map can keep
+    sending fields the export does not use (such as a background data product).
+    """
+
+    mode: Optional[str] = None
+    meanStdDev: Optional[FiniteFloat] = None
+    opacity: Optional[FiniteFloat] = None
+
+
+class SingleBandSymbologySettings(SymbologyCommon):
+    """Single band symbology, identified by its color ramp.
+
+    Mirrors the map's SingleBandSymbology type in RasterSymbologyContext.tsx.
+    """
+
+    # Required and non-empty: it is what tells this shape apart from the
+    # multiband one, and an empty ramp name has nothing to look up
+    colorRamp: Annotated[str, Field(min_length=1)]
+    nodata: Optional[FiniteFloat] = None
+    min: Optional[FiniteFloat] = None
+    max: Optional[FiniteFloat] = None
+    userMin: Optional[FiniteFloat] = None
+    userMax: Optional[FiniteFloat] = None
+
+
+class MultibandSymbologySettings(SymbologyCommon):
+    """Multiband symbology, identified by its three color channels.
+
+    Mirrors the map's MultibandSymbology type in RasterSymbologyContext.tsx.
+    """
+
+    red: SymbologyBand
+    green: SymbologyBand
+    blue: SymbologyBand
+
+
+# properties to receive via API on raster export
+class RasterExportRequest(BaseModel):
+    # Symbology settings from the map. Same shape as UserStyle settings. When
+    # omitted, the raster is exported without any symbology applied. The two
+    # shapes are told apart by their required fields: only single band settings
+    # carry a colorRamp, and only multiband settings carry red/green/blue.
+    settings: Optional[
+        Union[SingleBandSymbologySettings, MultibandSymbologySettings]
+    ] = None
 
 
 # properties to receive via API on processing tool run

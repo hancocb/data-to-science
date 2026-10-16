@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app import crud, models, schemas
 from app.api import deps
+from app.api.api_v1.endpoints.raw_data import processing_job_stale_cutoff
 from app.api.utils import normalize_sensor_value
 from app.core.config import settings
 from app.schemas.role import Role
@@ -186,13 +187,7 @@ def deactivate_flight(
     project: schemas.Project = Depends(deps.can_read_write_delete_project),
     db: Session = Depends(deps.get_db),
 ) -> Any:
-    # Check if project is published
-    if project.is_published:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot deactivate flight when project is published in a STAC catalog",
-        )
-
+    # crud.flight.deactivate refuses a project published in a STAC catalog
     deactivated_flight = crud.flight.deactivate(db, flight_id=flight.id)
     if not deactivated_flight:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST)
@@ -206,6 +201,10 @@ def check_for_raw_data_jobs_in_progress(
     db: Session = Depends(deps.get_db),
 ) -> Any:
     jobs = crud.job.get_raw_data_jobs_by_flight_id(
-        db, job_name="processing-raw-data", flight_id=flight_id, processing=True
+        db,
+        job_name="processing-raw-data",
+        flight_id=flight_id,
+        processing=True,
+        cutoff_time=processing_job_stale_cutoff(),
     )
     return jobs

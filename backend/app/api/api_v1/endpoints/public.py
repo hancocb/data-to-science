@@ -1,22 +1,41 @@
 import os
 import urllib.parse
 from io import BytesIO
-from typing import Annotated, Any, List, Optional
+from typing import Annotated, Any, List, Optional, Sequence, Tuple, Union
+from uuid import UUID
 
 import httpx
 import rasterio
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import RedirectResponse, StreamingResponse
+from geojson_pydantic import FeatureCollection
 from pydantic import UUID4
-from rasterio.warp import transform_bounds
+from rasterio.warp import transform, transform_bounds
 from sqlalchemy.orm import Session
 
 from app import crud, models, schemas
 from app.api import deps
+from app.api.utils import get_signature_for_data_product
 from app.core.config import settings
-
+from app.core.limiter import limiter
+from app.models.constants import NON_RASTER_TYPES
 
 router = APIRouter()
+
+VARNISH_BASE_URL = "http://varnish"
+TITILER_TMS = "WebMercatorQuad"
+# Tile size of the WebMercatorQuad tile matrix. TiTiler 2.x takes the requested
+# pixel dimensions as a "tilesize" query parameter.
+TILE_MATRIX_TILE_SIZE = 256
 
 
 @router.get("", response_model=schemas.DataProduct)
@@ -71,9 +90,9 @@ async def get_vector_tiles_for_vector_layer(
     db: Session = Depends(deps.get_db),
 ) -> StreamingResponse:
     if os.environ.get("RUNNING_TESTS") == "1":
-        upload_dir = settings.TEST_STATIC_DIR
+        pass
     else:
-        upload_dir = settings.STATIC_DIR
+        pass
 
     # check if user has access through project member role
     can_access = crud.vector_layer.verify_user_access_to_vector_layer_by_id(
@@ -104,11 +123,11 @@ async def get_vector_tiles_for_vector_layer(
 
 @router.get("/maptiles")
 async def get_map_tiles_for_data_product(
-    x: float,
-    y: float,
+    x: int,
+    y: int,
     z: int,
     data_product_id: UUID4,
-    scale: int,
+    scale: Annotated[int, Query(ge=1, le=4)],
     bidx: Annotated[Optional[List[int]], Query()] = None,
     rescale: Annotated[Optional[List[str]], Query()] = None,
     colormap_name: Annotated[Optional[str], Query()] = None,
@@ -134,22 +153,31 @@ async def get_map_tiles_for_data_product(
             status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
         )
 
+    # sign varnish request (required by varnish/default.vcl)
+    signature, expiration = get_signature_for_data_product(
+        data_product_id, data_product.filepath
+    )
+
     # construct titiler query params
-    query_params = ""
-    if bidx and len(bidx) > 0:
-        for band_index in bidx:
-            query_params += f"&bidx={band_index}"
-    if rescale and len(rescale) > 0:
-        for rescale_range in rescale:
-            query_params += f"&rescale={rescale_range}"
+    query_params: List[Tuple[str, str]] = [("url", data_product.filepath)]
+    for band_index in bidx or []:
+        query_params.append(("bidx", str(band_index)))
     if colormap_name:
-        query_params += f"&colormap_name={colormap_name}"
+        query_params.append(("colormap_name", colormap_name))
+    for rescale_range in rescale or []:
+        query_params.append(("rescale", rescale_range))
+    query_params += [
+        ("dataProductId", str(data_product_id)),
+        ("expires", str(expiration)),
+        ("secure", signature),
+        ("tilesize", str(scale * TILE_MATRIX_TILE_SIZE)),
+    ]
 
     # request map tile from titiler
     async with httpx.AsyncClient() as client:
         tile_url = (
-            f"http://varnish/cog/tiles/WebMercatorQuad/{z}/{x}/{y}@{scale}x"
-            f"?url={data_product.filepath}{query_params}"
+            f"{VARNISH_BASE_URL}/cog/tiles/{TITILER_TMS}/{z}/{x}/{y}"
+            f"?{urllib.parse.urlencode(query_params)}"
         )
         # timeout request after 30 seconds
         response = await client.get(tile_url, timeout=30.0)
@@ -162,6 +190,7 @@ async def get_map_tiles_for_data_product(
 
 
 @router.get("/bounds", response_model=schemas.data_product.DataProductBoundingBox)
+@limiter.limit("60/minute")
 def read_data_product_bounds(
     request: Request,
     data_product_id: UUID4,
@@ -207,3 +236,223 @@ def read_data_product_bounds(
 
     # return bounds
     return {"bounds": list(wgs84_bounds)}
+
+
+@router.get("/point", response_model=schemas.data_product.DataProductPointValue)
+@limiter.limit("60/minute")
+def read_data_product_point_value(
+    request: Request,
+    data_product_id: UUID4,
+    lon: float,
+    lat: float,
+    current_user: Optional[models.User] = Depends(deps.get_optional_current_user),
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    if os.environ.get("RUNNING_TESTS") == "1":
+        upload_dir = settings.TEST_STATIC_DIR
+    else:
+        upload_dir = settings.STATIC_DIR
+
+    # get user id if available
+    user_id = None
+    if current_user:
+        user_id = current_user.id
+
+    # check if file is public or if user has access through project member role
+    data_product = crud.data_product.get_public_data_product_by_id(
+        db, file_id=data_product_id, upload_dir=upload_dir, user_id=user_id
+    )
+    if not data_product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
+        )
+
+    # reject non-raster products
+    if data_product.data_type in NON_RASTER_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Point value sampling is only available for raster data products",
+        )
+
+    # sample raster at the given coordinates
+    try:
+        with rasterio.open(data_product.filepath) as dataset:
+            xs, ys = transform("EPSG:4326", dataset.crs, [lon], [lat])
+            sample = next(dataset.sample([(xs[0], ys[0])]))
+            nodata = dataset.nodata
+        values = [
+            None if (nodata is not None and float(v) == nodata) else float(v)
+            for v in sample
+        ]
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to sample data product at the given coordinates",
+        )
+
+    return {"coordinates": [lon, lat], "values": values}
+
+
+@router.get(
+    "/projects",
+    response_model=Union[List[schemas.project.PublishedProjects], FeatureCollection],
+)
+@limiter.limit("60/minute")
+def read_published_projects(
+    request: Request,
+    has_raster: bool = False,
+    format: str = Query("json", pattern="^(json|geojson)$"),
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """Retrieve all active published projects. No authentication required."""
+    projects = crud.project.get_published_projects(db, has_raster=has_raster)
+
+    if format == "geojson":
+        return {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Point",
+                        "coordinates": [project.centroid.x, project.centroid.y],
+                    },
+                    "properties": {
+                        "id": str(project.id),
+                        "title": project.title,
+                        "description": project.description,
+                    },
+                }
+                for project in projects
+            ],
+        }
+    return projects
+
+
+@router.get(
+    "/projects/{project_id}",
+    response_model=Union[schemas.project.PublishedProjects, FeatureCollection],
+)
+@limiter.limit("120/minute")
+def read_published_project(
+    request: Request,
+    project_id: UUID4,
+    format: str = Query("json", pattern="^(json|geojson)$"),
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """Retrieve a single active published project. No authentication required."""
+    project = crud.project.get_published_project_by_id(db, project_id=project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
+        )
+    if format == "geojson":
+        return {"type": "FeatureCollection", "features": [project.field]}
+    return project
+
+
+@router.get(
+    "/projects/{project_id}/flights",
+    response_model=Sequence[schemas.Flight],
+)
+@limiter.limit("120/minute")
+def read_published_project_flights(
+    request: Request,
+    project_id: UUID4,
+    has_raster: bool = False,
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """Retrieve flights and public data products for a published project. No authentication required."""
+    project = crud.project.get_published_project_by_id(db, project_id=project_id)
+    if project is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
+        )
+    if os.environ.get("RUNNING_TESTS") == "1":
+        upload_dir = settings.TEST_STATIC_DIR
+    else:
+        upload_dir = settings.STATIC_DIR
+    return crud.flight.get_public_flights_by_project(
+        db, project_id=project_id, upload_dir=upload_dir, has_raster=has_raster
+    )
+
+
+@router.post("/data_products/{data_product_id}/view")
+@limiter.limit("60/minute")
+def record_public_data_product_view(
+    request: Request,
+    response: Response,
+    data_product_id: UUID,
+    session_id: Annotated[
+        Optional[str], Header(alias="X-Session-Id", max_length=64)
+    ] = None,
+    current_user: Optional[models.User] = Depends(deps.get_optional_current_user),
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """Record an anonymous or authenticated view for a data product.
+
+    Authenticated callers use their user_id. Anonymous callers must supply an
+    X-Session-Id header. A view is recorded only when the project is published,
+    the data product's file permission is public (shared link), or the caller is
+    a project member. Returns 201 on insert, 200 on dedup-skip, 400 on missing
+    identity, 404 on not-found or unauthorized.
+    """
+    data_product = crud.data_product.get(db, id=data_product_id)
+    if (
+        not data_product
+        or not data_product.is_active
+        or not data_product.is_initial_processing_completed
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
+        )
+
+    # Require access via publication, a public file permission (shared link),
+    # or project membership for every caller.
+    flight = crud.flight.get(db, id=data_product.flight_id)
+    project = crud.project.get(db, id=flight.project_id) if flight else None
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
+        )
+
+    is_member = bool(
+        current_user
+        and crud.project_member.get_by_project_and_member_id(
+            db, project_uuid=project.id, member_id=current_user.id
+        )
+    )
+    if not project.is_published and not is_member:
+        file_permission = crud.file_permission.get_by_data_product(
+            db, file_id=data_product_id
+        )
+        if not file_permission or not file_permission.is_public:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
+            )
+
+    if not current_user and not session_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="X-Session-Id is required for anonymous views",
+        )
+
+    user_id = current_user.id if current_user else None
+    try:
+        view = crud.data_product_view.create_if_not_recent(
+            db,
+            data_product_id=data_product_id,
+            user_id=user_id,
+            session_id=session_id,
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="X-Session-Id is required for anonymous views",
+        )
+
+    response.status_code = status.HTTP_201_CREATED if view else status.HTTP_200_OK
+    view_count = crud.data_product_view.get_count_by_data_product_id(
+        db, data_product_id=data_product_id
+    )
+    return {"view_count": view_count}

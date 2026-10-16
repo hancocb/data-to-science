@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -10,9 +10,10 @@ from app.db.base_class import Base
 from app.models.utils.utcnow import utcnow
 
 if TYPE_CHECKING:
+    from .data_product import DataProduct
+    from .file_permission import FilePermission
     from .flight import Flight
     from .job import Job
-    from .file_permission import FilePermission
 
 
 class RawData(Base):
@@ -23,6 +24,10 @@ class RawData(Base):
     )
     filepath: Mapped[str] = mapped_column(String, nullable=False)
     original_filename: Mapped[str] = mapped_column(String, nullable=False)
+    s3_url: Mapped[str] = mapped_column(String, nullable=True)
+    # On-disk size in bytes, captured at upload finalization so per-user data
+    # usage can be a fast SQL SUM.
+    file_size: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     flight_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("flights.id"), nullable=False
     )
@@ -44,6 +49,9 @@ class RawData(Base):
     )
 
     flight: Mapped["Flight"] = relationship(back_populates="raw_data")
+    # Products derived from this raw data by the external processing service. No
+    # cascade: deleting raw data must never delete the products it produced.
+    data_products: Mapped[List["DataProduct"]] = relationship(back_populates="raw_data")
     jobs: Mapped[List["Job"]] = relationship(
         back_populates="raw_data", cascade="all, delete"
     )

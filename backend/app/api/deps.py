@@ -1,23 +1,24 @@
 import logging
 from collections.abc import Generator
-from typing import Any, Generator, Optional, Union
+from typing import Any, Optional, Union
 from uuid import UUID
 
-from fastapi import BackgroundTasks, Depends, HTTPException, Request, status
+from fastapi import BackgroundTasks, Depends, HTTPException, Request, Security, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.security import APIKeyHeader
+from fastapi.security import APIKeyHeader, SecurityScopes
 from fastapi_mail import MessageSchema, MessageType
 from pydantic import EmailStr
 from sqlalchemy.orm import Session
 
 from app import crud, models, schemas
+from app.api.utils import is_valid_api_key
 from app.core import security
 from app.core.config import settings
 from app.core.mail import fm
 from app.crud.crud_flight import ReadFlight
 from app.crud.crud_project import ReadProject
 from app.db.session import SessionLocal
-from app.api.utils import is_valid_api_key
+from app.models.enums.api_key_scope import APIKeyScope
 from app.schemas.raw_data import MetashapeQueryParams, ODMQueryParams
 from app.schemas.role import Role
 
@@ -118,7 +119,61 @@ def get_current_approved_user(
     return approved_user
 
 
+# api key scope required for each http method when an endpoint does not set one
+METHOD_SCOPES = {
+    "GET": APIKeyScope.READ,
+    "HEAD": APIKeyScope.READ,
+    "OPTIONS": APIKeyScope.READ,
+    "POST": APIKeyScope.CREATE,
+    "PUT": APIKeyScope.UPDATE,
+    "PATCH": APIKeyScope.UPDATE,
+    "DELETE": APIKeyScope.DELETE,
+}
+
+
+def required_scope_for_method(method: str) -> APIKeyScope:
+    # unknown methods require the most restrictive scope
+    return METHOD_SCOPES.get(method.upper(), APIKeyScope.DELETE)
+
+
+def get_user_from_api_key(
+    db: Session, api_key: str, request: Request, security_scopes: SecurityScopes
+) -> models.User:
+    """Return owner of api key if key is active and grants the required scopes.
+
+    Endpoints may set required scopes with Security(..., scopes=[...]); otherwise
+    the scope is derived from the request method.
+    """
+    if not is_valid_api_key(api_key):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid API key provided",
+        )
+    api_key_obj = crud.api_key.get_by_api_key(db, api_key=api_key)
+    if not api_key_obj:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+    if security_scopes.scopes:
+        required_scopes = [APIKeyScope(scope) for scope in security_scopes.scopes]
+    else:
+        required_scopes = [required_scope_for_method(request.method)]
+    for scope in required_scopes:
+        if not api_key_obj.has_scope(scope):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"API key does not have the '{scope.value}' scope",
+            )
+    # endpoints may resolve this dependency more than once for a single request
+    if getattr(request.state, "api_key_id", None) != api_key_obj.id:
+        crud.api_key.record_use(db, api_key_obj)
+        request.state.api_key_id = api_key_obj.id
+    return api_key_obj.owner
+
+
 def get_current_approved_user_by_jwt_or_api_key(
+    request: Request,
+    security_scopes: SecurityScopes,
     db: Session = Depends(get_db),
     api_key: str = Depends(header_scheme),
     token: str = Depends(reusable_oauth2_optional),
@@ -137,16 +192,7 @@ def get_current_approved_user_by_jwt_or_api_key(
 
     # if user not found with jwt token, try api key
     if not user and api_key and isinstance(api_key, str):
-        if not is_valid_api_key(api_key):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid API key provided",
-            )
-        user = crud.user.get_by_api_key(db, api_key=api_key)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-            )
+        user = get_user_from_api_key(db, api_key, request, security_scopes)
 
     # verify user exists, email is confirmed, and account is approved
     # raises appropriate http exceptions when checks fail
@@ -156,6 +202,8 @@ def get_current_approved_user_by_jwt_or_api_key(
 
 
 def get_optional_current_user(
+    request: Request,
+    security_scopes: SecurityScopes,
     db: Session = Depends(get_db),
     api_key: str = Depends(header_scheme),
     token: str = Depends(reusable_oauth2_optional),
@@ -175,16 +223,7 @@ def get_optional_current_user(
 
     # if user not found with jwt token, try api key
     if not user and api_key and isinstance(api_key, str):
-        if not is_valid_api_key(api_key):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid API key provided",
-            )
-        user = crud.user.get_by_api_key(db, api_key=api_key)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
-            )
+        user = get_user_from_api_key(db, api_key, request, security_scopes)
 
     # verify user exists, email is confirmed, and account is approved
     # returns None if checks fail
@@ -354,7 +393,9 @@ def can_read_write_project(
 def can_read_project_with_jwt_or_api_key(
     project_id: UUID,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_approved_user_by_jwt_or_api_key),
+    current_user: models.User = Security(
+        get_current_approved_user_by_jwt_or_api_key, scopes=[APIKeyScope.READ.value]
+    ),
 ) -> schemas.Project:
     """Return project if current user is project owner, manager, or viewer."""
     if current_user.is_demo:
@@ -479,6 +520,63 @@ def can_read_data_product(
             status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
         )
     return data_product
+
+
+def can_read_or_public_data_product(
+    project_id: UUID,
+    flight_id: UUID,
+    data_product_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_approved_user),
+) -> models.DataProduct:
+    """Return data product if the current user can read it.
+
+    Access is granted when the data product is publicly accessible (its file
+    permission is_public is True, which is also set when the parent project is
+    published) OR the user is a member of the project. Used by engagement
+    endpoints so any authenticated user who can see a data product can engage
+    with it, not only project members.
+    """
+    data_product = crud.data_product.get(db, id=data_product_id)
+    if not data_product or not data_product.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
+        )
+    # IDOR guards: the data product must belong to the flight, and the flight
+    # to the project named in the path.
+    flight = crud.flight.get(db, id=flight_id)
+    if not flight or data_product.flight_id != flight.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Data product does not belong to specified flight",
+        )
+    if flight.project_id != project_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Flight does not belong to specified project",
+        )
+    # Explicitly validate the parent hierarchy's soft-delete state rather than
+    # relying solely on the deactivation cascade reaching the data product.
+    project = crud.project.get(db, id=project_id)
+    if not flight.is_active or not project or not project.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
+        )
+    # Publicly accessible files are readable by any authenticated user.
+    file_permission = crud.file_permission.get_by_data_product(
+        db, file_id=data_product_id
+    )
+    if file_permission and file_permission.is_public:
+        return data_product
+    # Otherwise require project membership.
+    project_member = crud.project_member.get_by_project_and_member_id(
+        db, project_uuid=project_id, member_id=current_user.id
+    )
+    if project_member:
+        return data_product
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
+    )
 
 
 def can_read_write_data_product(

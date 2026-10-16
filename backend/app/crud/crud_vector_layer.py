@@ -1,17 +1,18 @@
 import json
 from collections import defaultdict
-from uuid import UUID
 from typing import List, Tuple
+from uuid import UUID
 
 import geopandas as gpd
-from geojson_pydantic import Feature
 from fastapi.encoders import jsonable_encoder
+from geojson_pydantic import Feature
 from sqlalchemy import and_, delete, func, select, text, update
 from sqlalchemy.orm import Session
 
 from app import crud
 from app.api.utils import create_vector_layer_preview
 from app.crud.base import CRUDBase
+from app.models.constants import RESERVED_VECTOR_PROPERTY_KEYS
 from app.models.data_product_metadata import DataProductMetadata
 from app.models.vector_layer import VectorLayer
 from app.schemas.vector_layer import VectorLayerCreate, VectorLayerUpdate
@@ -57,6 +58,17 @@ class CRUDVectorLayer(CRUDBase[VectorLayer, VectorLayerCreate, VectorLayerUpdate
             props_series = props_series.where(props_series.notna(), None)
 
             props = props_series.to_dict()
+            # Preserve a user-supplied "id" attribute (common in GIS exports)
+            # under the "fid" name zonal statistic exports already use
+            if "id" in props and "fid" not in props:
+                props["fid"] = props.pop("id")
+            # Drop reserved internal keys (e.g., from a re-uploaded D2S export)
+            # so they cannot shadow the real columns in map tiles
+            props = {
+                key: value
+                for key, value in props.items()
+                if key not in RESERVED_VECTOR_PROPERTY_KEYS
+            }
             properties = jsonable_encoder(props)
 
             # Layer ID will be same for each feature from the feature collection
@@ -227,7 +239,7 @@ class CRUDVectorLayer(CRUDBase[VectorLayer, VectorLayerCreate, VectorLayerUpdate
                 vector_layers[feature.properties["layer_id"]].append(feature)
         for layer_id in vector_layers.keys():
             # Create preview image (if one does not exist)
-            preview_img = create_vector_layer_preview(
+            create_vector_layer_preview(
                 project_id=project_id,
                 layer_id=layer_id,
                 features=vector_layers[layer_id],
@@ -295,7 +307,7 @@ class CRUDVectorLayer(CRUDBase[VectorLayer, VectorLayerCreate, VectorLayerUpdate
 
             # Step 3: Delete feature records that are inactive
             delete_statement = delete(VectorLayer).where(
-                and_(VectorLayer.layer_id == layer_id, VectorLayer.is_active == False)
+                and_(VectorLayer.layer_id == layer_id, not VectorLayer.is_active)
             )
             db.execute(delete_statement)
 

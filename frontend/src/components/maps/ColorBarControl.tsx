@@ -1,7 +1,6 @@
 import axios from 'axios';
 import clsx from 'clsx';
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowPathIcon } from '@heroicons/react/24/outline';
 
 import { DataProduct } from '../pages/workspace/projects/Project';
 import {
@@ -9,6 +8,8 @@ import {
   useRasterSymbologyContext,
 } from './RasterSymbologyContext';
 
+import { useMapContext } from './MapContext';
+import { isPublicOnly } from './utils';
 import api from '../../api';
 
 export default function ColorBarControl({
@@ -20,15 +21,15 @@ export default function ColorBarControl({
   position?: 'left' | 'right';
   projectId?: string;
 }) {
-  const [isRefreshing, toggleIsRefreshing] = useState(false);
   const [url, setURL] = useState('');
 
   const { state } = useRasterSymbologyContext();
+  const { activeProject } = useMapContext();
 
   const symbology = state[dataProduct.id]?.symbology;
 
   const fetchColorBar = useCallback(
-    async (symbology: SingleBandSymbology, refresh = false) => {
+    async (symbology: SingleBandSymbology) => {
       const stats = dataProduct.stac_properties.raster[0].stats;
 
       try {
@@ -38,49 +39,45 @@ export default function ColorBarControl({
             .split('/projects/')[1]
             .split('/flights/')[0];
         }
-        const response = await api.get(
-          `/projects/${effectiveProjectId}/flights/${dataProduct.flight_id}/data_products/${dataProduct.id}/utils/colorbar`,
-          {
-            params: {
-              cmin:
-                symbology.mode === 'minMax'
-                  ? symbology.min.toFixed(2)
-                  : symbology.mode === 'userDefined'
-                  ? symbology.userMin.toFixed(2)
-                  : symbology.mode === 'meanStdDev'
-                  ? (stats.mean - stats.stddev * symbology.meanStdDev).toFixed(
-                      2
-                    )
-                  : symbology.min.toFixed(2),
-              cmax:
-                symbology.mode === 'minMax'
-                  ? symbology.max.toFixed(2)
-                  : symbology.mode === 'userDefined'
-                  ? symbology.userMax.toFixed(2)
-                  : symbology.mode === 'meanStdDev'
-                  ? (stats.mean + stats.stddev * symbology.meanStdDev).toFixed(
-                      2
-                    )
-                  : symbology.max.toFixed(2),
-              cmap: symbology.colorRamp,
-              refresh: refresh,
-            },
-          }
-        );
+        const colorbarPath = `/projects/${effectiveProjectId}/flights/${dataProduct.flight_id}/data_products/${dataProduct.id}/utils/colorbar`;
+        const params = {
+          cmin:
+            symbology.mode === 'minMax'
+              ? symbology.min.toFixed(2)
+              : symbology.mode === 'userDefined'
+              ? symbology.userMin.toFixed(2)
+              : symbology.mode === 'meanStdDev'
+              ? (stats.mean - stats.stddev * symbology.meanStdDev).toFixed(2)
+              : symbology.min.toFixed(2),
+          cmax:
+            symbology.mode === 'minMax'
+              ? symbology.max.toFixed(2)
+              : symbology.mode === 'userDefined'
+              ? symbology.userMax.toFixed(2)
+              : symbology.mode === 'meanStdDev'
+              ? (stats.mean + stats.stddev * symbology.meanStdDev).toFixed(2)
+              : symbology.max.toFixed(2),
+          cmap: symbology.colorRamp,
+        };
+        // Use plain axios (no auth interceptor) for public-only projects so a
+        // redirect to the auth-required endpoint doesn't trigger a login redirect.
+        const response = isPublicOnly(activeProject)
+          ? await axios.get(
+              `${import.meta.env.VITE_API_V1_STR}${colorbarPath}`,
+              { params }
+            )
+          : await api.get(colorbarPath, { params });
         if (response) {
-          // only set url if it reseponds with OK status
           axios
             .get(response.data.colorbar_url)
             .then(() => setURL(response.data.colorbar_url))
-            .catch(() => setURL(''))
-            .finally(() => setTimeout(() => toggleIsRefreshing(false), 2000));
+            .catch(() => setURL(''));
         }
       } catch (err) {
-        setTimeout(() => toggleIsRefreshing(false), 2000);
         throw err;
       }
     },
-    [dataProduct, projectId]
+    [dataProduct, projectId, activeProject]
   );
 
   useEffect(() => {
@@ -89,35 +86,16 @@ export default function ColorBarControl({
     }
   }, [fetchColorBar, symbology]);
 
-  if (!symbology) return null;
+  if (!symbology || !url) return null;
 
-  if (url) {
-    return (
-      <div
-        className={clsx(
-          'absolute bottom-8 bg-white/75 rounded-md shadow-md px-3 py-6 m-2.5 leading-3 text-slate-600 outline-hidden',
-          { 'start-0': position === 'left', 'end-0': position === 'right' }
-        )}
-      >
-        <img src={url} className="h-80" />
-        <button
-          type="button"
-          className="flex items-center text-sky-600"
-          onClick={async () => {
-            toggleIsRefreshing(true);
-            fetchColorBar(symbology as SingleBandSymbology, true);
-          }}
-        >
-          <ArrowPathIcon
-            className={clsx('h-4 w-4 inline mr-2', {
-              'animate-spin': isRefreshing,
-            })}
-          />
-          <span>Refresh</span>
-        </button>
-      </div>
-    );
-  } else {
-    return null;
-  }
+  return (
+    <div
+      className={clsx(
+        'absolute bottom-8 max-md:bottom-20 bg-white/75 rounded-md shadow-md px-3 py-2 m-2.5 leading-3 text-slate-600 outline-hidden',
+        { 'start-0': position === 'left', 'end-0': position === 'right' }
+      )}
+    >
+      <img src={url} className="h-80 max-md:max-h-40" />
+    </div>
+  );
 }

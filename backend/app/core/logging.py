@@ -2,7 +2,6 @@ import json
 import logging
 import os
 import sys
-from functools import lru_cache
 from http import HTTPStatus
 from io import TextIOBase
 from logging.handlers import TimedRotatingFileHandler
@@ -13,7 +12,6 @@ from fastapi import Request, Response
 from pydantic import BaseModel
 
 from app.core.config import settings
-
 
 API_LOGDIR = Path(settings.API_LOGDIR)
 API_LOGFILE = API_LOGDIR / "backend.log"
@@ -155,8 +153,21 @@ def get_http_info(request: Request, response: Response) -> Dict:
     }
 
 
+def suppress_noisy_loggers() -> None:
+    """Raise the level of third-party loggers that emit unactionable INFO noise.
+
+    rasterio's Cython internals construct a rasterio.Env (and with it a boto3
+    session) for every rasterize call, so botocore logs "Found credentials in
+    environment variables." once per zone during zonal statistics runs. This
+    is expected, not an error, and unrelated to how credentials are supplied.
+    """
+    logging.getLogger("botocore.credentials").setLevel(logging.WARNING)
+
+
 def setup_logger() -> None:
     os.makedirs(API_LOGDIR, exist_ok=True)
+
+    suppress_noisy_loggers()
 
     # Reset only the root logger handlers so third-party loggers keep theirs
     root_logger = logging.getLogger()

@@ -21,6 +21,8 @@ import {
   MultibandSymbology,
 } from './RasterSymbologyContext';
 
+import api from '../../api';
+
 type Bounds = [number, number, number, number];
 
 /**
@@ -282,16 +284,25 @@ function getHillshade(
   }
 }
 
+// Fewest bands that can make up an RGB composite.
+const MIN_RGB_BANDS = 3;
+
 /**
- * Returns true if data product has a single band.
+ * Returns true if data product is displayed as a single band.
+ *
+ * An RGB composite needs three bands, so a raster with fewer than that is
+ * displayed as band 1 with a color ramp. A two band raster carries its second
+ * band as an alpha channel, which titiler reads as the tile mask rather than as
+ * data, so band 1 is the only band worth displaying either way.
  * @param dataProduct Active data product.
  * @returns True if single band, otherwise False.
  */
 function isSingleBand(dataProduct: DataProduct): boolean {
-  return (
-    dataProduct.stac_properties &&
-    dataProduct.stac_properties.raster.length === 1
-  );
+  if (!dataProduct.stac_properties) return false;
+
+  const bandCount = dataProduct.stac_properties.raster.length;
+
+  return bandCount > 0 && bandCount < MIN_RGB_BANDS;
 }
 
 /**
@@ -340,6 +351,16 @@ const createDefaultMultibandSymbology = (
 };
 
 /**
+ * Converts a symbology value into a string for a controlled number input.
+ * Non-finite values, including a null persisted by an older saved style,
+ * become an empty string.
+ * @param value Current symbology value.
+ * @returns String representation of the value.
+ */
+const toSymbologyInputValue = (value: number): string =>
+  Number.isFinite(value) ? String(value) : '';
+
+/**
  * Returns default min/max values for single band raster.
  * @param stacProps STAC metadata for raster band.
  * @param symbology Current symbology settings.
@@ -353,18 +374,21 @@ const getSingleBandMinMax = (
 
   switch (symbology.mode) {
     case 'minMax':
-      if (symbology.min === undefined || symbology.max === undefined) {
+      if (!Number.isFinite(symbology.min) || !Number.isFinite(symbology.max)) {
         console.warn(
-          'Min and max raster props missing, falling back to default min/max.'
+          'Min and max raster props missing or invalid, falling back to default min/max.'
         );
         return defaultMinMax;
       }
       return [symbology.min, symbology.max];
 
     case 'userDefined':
-      if (symbology.userMin === undefined || symbology.userMax === undefined) {
+      if (
+        !Number.isFinite(symbology.userMin) ||
+        !Number.isFinite(symbology.userMax)
+      ) {
         console.warn(
-          'User defined min and max props missing, falling back to default min/max.'
+          'User defined min and max props missing or invalid, falling back to default min/max.'
         );
         return defaultMinMax;
       }
@@ -403,8 +427,8 @@ const getMultibandMinMax = (
     ];
 
   const validateBands = (key: 'min' | 'max' | 'userMin' | 'userMax') =>
-    ['red', 'green', 'blue'].every(
-      (band) => symbology[band]?.[key] !== undefined
+    ['red', 'green', 'blue'].every((band) =>
+      Number.isFinite(symbology[band]?.[key])
     );
 
   const getStats = (index: number) => stacProps.raster?.[index - 1]?.stats;
@@ -494,6 +518,21 @@ function getLocalStorageProjects(): ProjectItem[] | null {
   }
 
   return null;
+}
+
+/**
+ * Tile size of the WebMercatorQuad tile matrix. Raster sources report this size
+ * to MapLibre while titiler renders a multiple of it for higher pixel density.
+ */
+const TITILER_TILE_SIZE = 256;
+
+/**
+ * Returns pixel dimensions requested from titiler for a tile scale.
+ * @param tileScale Multiplier for the base tile size.
+ * @returns Value for titiler's "tilesize" query parameter.
+ */
+function getTitilerTileSize(tileScale: number): number {
+  return tileScale * TITILER_TILE_SIZE;
 }
 
 /**
@@ -588,6 +627,39 @@ function setLocalStorageProjects(projects: ProjectItem[]): void {
     // If nothing is stored, set the projects
     localStorage.setItem('projects', projectsString);
   }
+}
+
+/**
+ * Checks local storage for previously stored public projects.
+ * @returns Array of public projects retrieved from local storage.
+ */
+function getLocalStoragePublicProjects(): ProjectItem[] | null {
+  const lsString = localStorage.getItem('publicProjects');
+  if (lsString) {
+    const parsed: ProjectItem[] = JSON.parse(lsString);
+    if (parsed && parsed.length > 0) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+/**
+ * Stores public projects in local storage under a separate key.
+ * @param projects Public projects to cache.
+ */
+function setLocalStoragePublicProjects(projects: ProjectItem[]): void {
+  localStorage.setItem('publicProjects', JSON.stringify(projects));
+}
+
+/**
+ * Returns true when a project was fetched via the public endpoint and the
+ * current user has no membership role on it.  Used to branch between auth-
+ * required and public API paths throughout the map components.
+ * @param project Active project (may be null).
+ */
+function isPublicOnly(project: ProjectItem | null | undefined): boolean {
+  return !!project?.is_public && !project?.role;
 }
 
 /**
@@ -689,23 +761,181 @@ const fitMapToGeoJSON = (
   }
 };
 
+/**
+ * Format a single number for display: integers as integers, floats up to 2 d.p.
+ * @param v Numeric value.
+ * @returns Formatted string.
+ */
+function formatNum(v: number): string {
+  return Number.isInteger(v) ? v.toString() : parseFloat(v.toFixed(2)).toString();
+}
+
+/**
+ * Build a human-readable label string for raster cell value(s).
+ * - Single-band: "{value} {unit}" (unit omitted if empty).
+ * - Multiband: "R: {r}  G: {g}  B: {b}" using the displayed symbology's band indices.
+ * - All-nodata or no values: "No data".
+ * @param values  Per-band values from /public/point (null = nodata/out-of-range).
+ * @param dataProduct  Active data product.
+ * @param symbologyState  Current raster symbology state keyed by data product id.
+ */
+function buildLabel(
+  values: (number | null)[] | null | undefined,
+  dataProduct: DataProduct | null | undefined,
+  symbologyState: Record<
+    string,
+    { symbology: SingleBandSymbology | MultibandSymbology | null } | undefined
+  >
+): string {
+  if (!values || !dataProduct) return '';
+
+  const allNodata = values.every((v) => v === null);
+  if (allNodata) return 'No data';
+
+  if (isSingleBand(dataProduct)) {
+    const v = values[0];
+    if (v == null) return 'No data';
+    const unit = dataProduct.stac_properties?.raster?.[0]?.unit;
+    return unit ? `${formatNum(v)} ${unit}` : formatNum(v);
+  }
+
+  // multiband — label channels using the displayed symbology if available
+  const sym = symbologyState[dataProduct.id]?.symbology;
+  if (sym && 'red' in sym) {
+    const mb = sym as MultibandSymbology;
+    const fmt = (v: number | null | undefined) =>
+      v == null ? 'n/a' : formatNum(v);
+    const r = values[mb.red.idx - 1];
+    const g = values[mb.green.idx - 1];
+    const b = values[mb.blue.idx - 1];
+    return `R: ${fmt(r)}  G: ${fmt(g)}  B: ${fmt(b)}`;
+  }
+
+  // fallback: enumerate all bands
+  return values
+    .map((v, i) => `B${i + 1}: ${v == null ? 'n/a' : formatNum(v)}`)
+    .join('  ');
+}
+
+/**
+ * Reads the file name a response's Content-Disposition header asks for.
+ * Returns an empty string when the header is absent or carries no name. That
+ * includes the cross-origin case, where the browser hides the header from
+ * JavaScript unless the server lists it in Access-Control-Expose-Headers.
+ * @param contentDisposition Raw Content-Disposition header value.
+ */
+function getFilenameFromContentDisposition(contentDisposition: unknown): string {
+  if (typeof contentDisposition !== 'string') return '';
+
+  // The RFC 5987 form is checked first because it is the one the server uses
+  // whenever the name needs escaping
+  const encoded = contentDisposition.match(/filename\*=\s*utf-8''([^;]+)/i);
+  let filename = '';
+  if (encoded) {
+    try {
+      filename = decodeURIComponent(encoded[1].trim());
+    } catch {
+      // malformed encoding, fall through to the plain form
+    }
+  }
+
+  if (!filename) {
+    const plain = contentDisposition.match(/filename="?([^";]+)"?/i);
+    filename = plain ? plain[1].trim() : '';
+  }
+
+  // The server already sanitizes this name, but it arrives as a header, so any
+  // path separator is neutralized before it becomes a download name
+  return filename.replace(/[\\/]/g, '_');
+}
+
+/**
+ * Removes symbology fields the export does not use.
+ * The map hangs a whole background data product off single band symbology. The
+ * export ignores it and the backend drops it, so it is not worth uploading with
+ * every request.
+ * @param symbology Current symbology settings.
+ */
+function toExportSettings(
+  symbology: SingleBandSymbology | MultibandSymbology
+): Record<string, unknown> {
+  const { background: _background, ...settings } =
+    symbology as SingleBandSymbology;
+  return settings;
+}
+
+/**
+ * Requests a JPG export of a raster data product and saves it to the user's device.
+ * When symbology settings are provided, the color ramp, band rescaling, and band
+ * composition applied on the map are included in the exported image. Without them,
+ * the raster is converted as-is.
+ * @param dataProduct Data product to export.
+ * @param projectId Project the data product belongs to.
+ * @param symbology Current symbology settings, if any.
+ */
+async function exportDataProductToJpeg(
+  dataProduct: DataProduct,
+  projectId: string,
+  symbology?: SingleBandSymbology | MultibandSymbology
+): Promise<void> {
+  const response = await api.post(
+    `/projects/${projectId}/flights/${dataProduct.flight_id}` +
+      `/data_products/${dataProduct.id}/export/jpeg`,
+    { settings: symbology ? toExportSettings(symbology) : null },
+    { responseType: 'blob' }
+  );
+
+  // The server names the file it just built, so its name is preferred over
+  // anything reassembled here. download_filename is the fallback, and the data
+  // product id after that, which is what the raw download link uses. Neither
+  // fallback is ever derived from original_filename: the uploaded name is
+  // untrusted and must not be handed to whoever downloads the export.
+  const filename =
+    getFilenameFromContentDisposition(
+      response.headers['content-disposition']
+    ) ||
+    (dataProduct.download_filename
+      ? `${dataProduct.download_filename.replace(/\.[^/.]+$/, '')}.jpg`
+      : `${dataProduct.id}.jpg`);
+
+  const url = URL.createObjectURL(response.data);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  // Released on a later tick: Safari has cancelled downloads when the object URL
+  // is revoked in the same tick as the click that started them
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 export {
   areProjectsEqual,
+  buildLabel,
   calculateBoundsFromGeoJSON,
   createDefaultSingleBandSymbology,
   createDefaultMultibandSymbology,
+  exportDataProductToJpeg,
   filterValidGeoJSONFeatures,
   filterValidProjects,
   fitMapToGeoJSON,
+  formatNum,
   getCategory,
   getDefaultStyle,
   getHillshade,
   getLocalStorageProjects,
+  getLocalStoragePublicProjects,
   getMultibandMinMax,
   getSingleBandMinMax,
   getTitilerQueryParams,
+  getTitilerTileSize,
   isElevationDataProduct,
+  isPublicOnly,
   isSingleBand,
   mapApiResponseToLayers,
   setLocalStorageProjects,
+  setLocalStoragePublicProjects,
+  TITILER_TILE_SIZE,
+  toSymbologyInputValue,
 };

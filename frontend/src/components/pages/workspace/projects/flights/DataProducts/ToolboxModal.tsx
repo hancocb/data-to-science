@@ -1,3 +1,4 @@
+import { isAxiosError } from 'axios';
 import { Form, Formik } from 'formik';
 import { useEffect, useState } from 'react';
 import { useParams, useRevalidator } from 'react-router';
@@ -10,7 +11,10 @@ import Modal from '../../../../../Modal';
 import HintText from '../../../../../HintText';
 import { useFlightContext } from '../../FlightContext/FlightContext';
 import { DataProduct } from '../../Project';
-import { isElevationDataProduct } from '../../../../../maps/utils';
+import {
+  isElevationDataProduct,
+  isSingleBand,
+} from '../../../../../maps/utils';
 import {
   HillshadeTools,
   MultiSpectralTools,
@@ -44,10 +48,6 @@ export interface ToolboxFields {
   zonal: boolean;
   zonal_layer_id: string;
 }
-
-const getNumOfBands = (dataProduct: DataProduct) => {
-  return dataProduct.stac_properties.raster.length;
-};
 
 const getInitialValues = (
   dataProduct: DataProduct,
@@ -156,17 +156,23 @@ export default function ToolboxModal({
                     if (response) {
                       setStatus({
                         type: 'success',
-                        msg: 'Processing has begun. You may close this window.',
+                        msg: values.zonal
+                          ? 'Processing has begun. Zonal statistics status will update next to the selected layer.'
+                          : 'Processing has begun. You may close this window.',
                       });
                       actions.resetForm({ values: values });
                       setTimeout(() => {
                         revalidator.revalidate();
                       }, 3000);
                     }
-                  } catch {
+                  } catch (err) {
                     setStatus({
                       type: 'error',
-                      msg: 'Unable to complete request',
+                      msg:
+                        isAxiosError(err) &&
+                        typeof err.response?.data?.detail === 'string'
+                          ? err.response.data.detail
+                          : 'Unable to complete request',
                     });
                   }
                 } else {
@@ -185,25 +191,23 @@ export default function ToolboxModal({
                     !isPointCloud &&
                     (flight.sensor.toLowerCase() === 'rgb' ||
                       flight.sensor.toLowerCase() === 'multispectral') &&
-                    getNumOfBands(dataProduct) > 2 && (
+                    !isSingleBand(dataProduct) && (
                       <RGBTools dataProduct={dataProduct} />
                     )}
                   {/* multispectral tools */}
                   {flight &&
                     !isPointCloud &&
                     flight.sensor.toLowerCase() === 'multispectral' &&
-                    getNumOfBands(dataProduct) > 2 && (
+                    !isSingleBand(dataProduct) && (
                       <MultiSpectralTools dataProduct={dataProduct} />
                     )}
                   {/* hillshade and zonal statistic tools */}
-                  {flight &&
-                    !isPointCloud &&
-                    getNumOfBands(dataProduct) === 1 && (
-                      <>
-                        <HillshadeTools />
-                        <ZonalStatisticTools dataProduct={dataProduct} />
-                      </>
-                    )}
+                  {flight && !isPointCloud && isSingleBand(dataProduct) && (
+                    <>
+                      <HillshadeTools />
+                      <ZonalStatisticTools dataProduct={dataProduct} />
+                    </>
+                  )}
                   {/* point cloud tools */}
                   {flight && isPointCloud && (
                     <PointCloudTools otherDataProducts={otherDataProducts} />

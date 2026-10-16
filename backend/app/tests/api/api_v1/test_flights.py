@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from random import randint
 
 from fastapi import status
@@ -11,13 +11,14 @@ from sqlalchemy.orm import Session
 from app import crud
 from app.api.deps import get_current_user
 from app.core.config import settings
-from app.models.flight import Flight, SENSORS, PLATFORMS
-from app.schemas.data_product import DataProductCreate
+from app.models.flight import PLATFORMS, SENSORS, Flight
+from app.schemas.data_product import DataProductCreate, DataProductUpdate
 from app.schemas.flight import FlightUpdate
 from app.schemas.project_member import ProjectMemberCreate
 from app.schemas.role import Role
 from app.tests.utils.data_product import SampleDataProduct
-from app.tests.utils.flight import create_flight, create_acquisition_date
+from app.tests.utils.flight import create_acquisition_date, create_flight
+from app.tests.utils.job import create_job
 from app.tests.utils.project import create_project
 from app.tests.utils.project_member import create_project_member
 from app.tests.utils.raw_data import SampleRawData
@@ -357,18 +358,16 @@ def test_get_flights_with_raster_data(
     project = create_project(db)
     flight1 = create_flight(db, project_id=project.id)
     flight2 = create_flight(db, project_id=project.id)
-    flight3 = create_flight(db, project_id=project.id)
+    create_flight(db, project_id=project.id)
     current_user = get_current_user(db, normal_user_access_token)
     project_member_in = ProjectMemberCreate(member_id=current_user.id, role=Role.VIEWER)
     crud.project_member.create_with_project(
         db, obj_in=project_member_in, project_uuid=project.id
     )
     # add raster data product to first flight
-    raster_data_product = SampleDataProduct(
-        db, data_type="ortho", flight=flight1, project=project
-    )
+    SampleDataProduct(db, data_type="ortho", flight=flight1, project=project)
     # add point cloud data product to second flight
-    point_cloud_data_product = crud.data_product.create_with_flight(
+    crud.data_product.create_with_flight(
         db,
         obj_in=DataProductCreate(
             data_type="point_cloud",
@@ -549,9 +548,7 @@ def test_update_flight_project_with_manager_role_for_both_projects(
         project_uuid=src_project.id,
     )
     # add data product to flight
-    data_product = SampleDataProduct(
-        db, project=src_project, flight=flight, skip_job=True
-    )
+    SampleDataProduct(db, project=src_project, flight=flight, skip_job=True)
     # create destination project add current user as manager (read/write)
     dst_project = create_project(db)
     project_member_in = ProjectMemberCreate(
@@ -657,7 +654,7 @@ def test_update_flight_project_with_read_only_set_on_flight(
     src_project = create_project(db, owner_id=current_user.id)
     flight = create_flight(db, altitude=50, project_id=src_project.id)
     # add data product to flight
-    data_product = SampleDataProduct(db, project=src_project, flight=flight)
+    SampleDataProduct(db, project=src_project, flight=flight)
     # create destination project add current user as manager (read/write)
     dst_project = create_project(db, owner_id=current_user.id)
     # set flight to "read_only"
@@ -730,7 +727,7 @@ def test_deactivate_flight_by_non_project_member(
     client: TestClient, db: Session, normal_user_access_token: str
 ) -> None:
     project_owner = create_user(db)
-    current_user = get_current_user(db, normal_user_access_token)
+    get_current_user(db, normal_user_access_token)
     project = create_project(db, owner_id=project_owner.id)
     flight = create_flight(db, project_id=project.id)
     response = client.delete(
@@ -781,3 +778,65 @@ def test_deactivate_flight_deactivates_data_products(
         data_product_in_db = crud.data_product.get(db, id=data_product.obj.id)
         assert data_product_in_db is not None
         assert data_product_in_db.is_active is False
+
+
+def test_check_progress_excludes_stale_processing_jobs(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    current_user = get_current_user(db, normal_user_access_token)
+    raw_data = SampleRawData(db, user=current_user)
+    recent_job = create_job(
+        db,
+        name="processing-raw-data",
+        raw_data_id=raw_data.obj.id,
+        start_time=datetime.now(tz=timezone.utc) - timedelta(hours=1),
+    )
+    create_job(
+        db,
+        name="processing-raw-data",
+        raw_data_id=raw_data.obj.id,
+        start_time=datetime.now(tz=timezone.utc) - timedelta(hours=25),
+    )
+    response = client.get(
+        f"{settings.API_V1_STR}/projects/{raw_data.project.id}"
+        f"/flights/{raw_data.flight.id}/check_progress"
+    )
+    assert response.status_code == status.HTTP_200_OK
+    response_jobs = response.json()
+    assert len(response_jobs) == 1
+    assert response_jobs[0]["id"] == str(recent_job.id)
+
+
+def test_get_flights_includes_a_safe_download_filename(
+    client: TestClient, db: Session, normal_user_access_token: str
+) -> None:
+    """Data products nested in a flight carry the download name too.
+
+    This is the payload the map reads, so it is where the JPG export gets the
+    name it saves under.
+    """
+    current_user = get_current_user(db, normal_user_access_token)
+    project = create_project(db, owner_id=current_user.id, title="Corn Trial 2024")
+    flight = create_flight(db, project_id=project.id, pilot_id=current_user.id)
+    data_product = SampleDataProduct(
+        db, data_type="dsm", project=project, flight=flight
+    )
+    # the uploaded name is untrusted and must not reach the downloader
+    crud.data_product.update(
+        db,
+        db_obj=data_product.obj,
+        obj_in=DataProductUpdate(original_filename="../../evil name.tif"),
+    )
+
+    response = client.get(f"{settings.API_V1_STR}/projects/{project.id}/flights")
+    assert response.status_code == status.HTTP_200_OK
+
+    match = next(
+        product
+        for returned_flight in response.json()
+        for product in returned_flight["data_products"]
+        if product["id"] == str(data_product.obj.id)
+    )
+    acquisition_date = flight.acquisition_date.strftime("%Y%m%d")
+    assert match["download_filename"] == f"Corn_Trial_2024_{acquisition_date}_dsm.tif"
+    assert "evil" not in match["download_filename"]

@@ -1,31 +1,29 @@
-from datetime import datetime, timezone
+import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Optional, Tuple
 from uuid import UUID
-import re
-import logging
 
 import geopandas as gpd
 from fastapi import HTTPException, Request, status
 from fastapi.responses import JSONResponse
-from starlette.types import Scope, Receive, Send
 from sqlalchemy.orm import Session
-
-from app.utils.staticfiles import RangedStaticFiles
+from starlette.types import Receive, Scope, Send
 
 from app import crud
 from app.api.deps import can_read_project
 from app.api.utils import (
-    save_vector_layer_parquet,
-    save_vector_layer_flatgeobuf,
     get_static_dir,
+    save_vector_layer_flatgeobuf,
+    save_vector_layer_parquet,
 )
 from app.core import security
 from app.db.session import SessionLocal
 from app.models.data_product import DataProduct
+from app.models.enums.api_key_scope import APIKeyScope
 from app.models.raw_data import RawData
-from app.schemas.api_key import APIKeyUpdate
+from app.utils.staticfiles import RangedStaticFiles
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +196,8 @@ def verify_api_key_static_file_access(
     # get api key db obj
     api_key_obj = crud.api_key.get_by_api_key(db, api_key)
 
-    if api_key_obj:
+    # static file access requires the read scope
+    if api_key_obj and api_key_obj.has_scope(APIKeyScope.READ):
         # user associated with api key
         user = api_key_obj.owner
         # flight associated with data product
@@ -208,11 +207,7 @@ def verify_api_key_static_file_access(
             db=db, project_id=flight.project_id, current_user=user
         ):
             # update last accessed date and total requests
-            api_key_in = APIKeyUpdate(
-                last_used_at=datetime.now(timezone.utc),
-                total_requests=api_key_obj.total_requests + 1,
-            )
-            crud.api_key.update(db, db_obj=api_key_obj, obj_in=api_key_in)
+            crud.api_key.record_use(db, api_key_obj)
             return True
 
     return False
@@ -243,7 +238,8 @@ def verify_api_key_raw_data_access(
     # get api key db obj
     api_key_obj = crud.api_key.get_by_api_key(db, api_key)
 
-    if api_key_obj:
+    # static file access requires the read scope
+    if api_key_obj and api_key_obj.has_scope(APIKeyScope.READ):
         # user associated with api key
         user = api_key_obj.owner
         # flight associated with raw data
@@ -253,11 +249,7 @@ def verify_api_key_raw_data_access(
             db=db, project_id=flight.project_id, current_user=user
         ):
             # update last accessed date and total requests
-            api_key_in = APIKeyUpdate(
-                last_used_at=datetime.now(timezone.utc),
-                total_requests=api_key_obj.total_requests + 1,
-            )
-            crud.api_key.update(db, db_obj=api_key_obj, obj_in=api_key_in)
+            crud.api_key.record_use(db, api_key_obj)
             return True
 
     return False
@@ -415,6 +407,20 @@ async def verify_static_file_access(request: Request) -> None:
         project_id_str = safe_path_split(project_id_str, "/", 0)
         project_id_uuid = validate_and_extract_uuid(project_id_str)
 
+        # Preview images of published, active projects are publicly accessible
+        if request.url.path.endswith("/preview_map.png"):
+            db_preview = SessionLocal()
+            try:
+                preview_project = crud.project.get(db_preview, id=project_id_uuid)
+                if (
+                    preview_project
+                    and preview_project.is_active
+                    and preview_project.is_published
+                ):
+                    return
+            finally:
+                db_preview.close()
+
         # Check for API_KEY authentication (for programmatic access, QGIS, etc.)
         # Support both header (preferred) and query param (legacy/QGIS)
         api_key = request.headers.get("X-API-KEY") or request.query_params.get(
@@ -424,7 +430,8 @@ async def verify_static_file_access(request: Request) -> None:
             db = SessionLocal()
             try:
                 api_key_obj = crud.api_key.get_by_api_key(db, api_key)
-                if api_key_obj:
+                # static file access requires the read scope
+                if api_key_obj and api_key_obj.has_scope(APIKeyScope.READ):
                     user_from_api_key = api_key_obj.owner
                     if can_read_project(
                         db=db,
@@ -432,11 +439,7 @@ async def verify_static_file_access(request: Request) -> None:
                         current_user=user_from_api_key,
                     ):
                         # Update API key usage stats
-                        api_key_in = APIKeyUpdate(
-                            last_used_at=datetime.now(timezone.utc),
-                            total_requests=api_key_obj.total_requests + 1,
-                        )
-                        crud.api_key.update(db, db_obj=api_key_obj, obj_in=api_key_in)
+                        crud.api_key.record_use(db, api_key_obj)
                         return  # Authorized via API key
             finally:
                 db.close()
@@ -535,7 +538,7 @@ async def verify_static_file_access(request: Request) -> None:
         db_indoor = SessionLocal()
         try:
             try:
-                indoor_project = crud.indoor_project.get_with_permission(
+                crud.indoor_project.get_with_permission(
                     db_indoor,
                     indoor_project_id=indoor_project_id_uuid,
                     user_id=user.id,

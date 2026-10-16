@@ -1,10 +1,12 @@
 import os
 from datetime import datetime, timezone
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app import crud
 from app.core.config import settings
+from app.core.exceptions import PermissionDenied
 from app.tests.utils.flight import create_flight
 from app.tests.utils.raw_data import SampleRawData
 from app.tests.utils.user import create_user
@@ -71,6 +73,23 @@ def test_deactivate_raw_data(db: Session) -> None:
     )
 
 
+def test_deactivate_raw_data_in_published_project_is_refused(db: Session) -> None:
+    """Raw data in a published project cannot be deactivated, whatever calls
+    the CRUD method. Published raw data often has no s3_url of its own, so the
+    cleanup utilities cannot be relied on to hold it back."""
+    user = create_user(db)
+    raw_data = SampleRawData(db, user=user)
+    crud.project.update_project_visibility(
+        db, project_id=raw_data.project.id, is_public=True
+    )
+
+    with pytest.raises(PermissionDenied):
+        crud.raw_data.deactivate(db, raw_data_id=raw_data.obj.id)
+
+    raw_data_in_db = crud.raw_data.get(db, id=raw_data.obj.id)
+    assert raw_data_in_db and raw_data_in_db.is_active is True
+
+
 def test_read_raw_data_url_attribute(db: Session) -> None:
     """Test that url attribute is set on raw_data objects."""
     raw_data = SampleRawData(db)
@@ -131,3 +150,55 @@ def test_create_raw_data_creates_file_permission(db: Session) -> None:
     assert file_permission.raw_data_id == raw_data.id
     assert file_permission.file_id is None
     assert file_permission.is_public is False  # Should default to private
+
+
+def test_update_s3_url_sets_value(db: Session) -> None:
+    raw = SampleRawData(db)
+    assert raw.obj.s3_url is None
+
+    crud.raw_data.update_s3_url(
+        db,
+        raw_data_id=raw.obj.id,
+        s3_url="https://my-bucket.s3.us-east-1.amazonaws.com/d2s/host/raw.zip",
+    )
+
+    refreshed = crud.raw_data.get(db, id=raw.obj.id)
+    assert refreshed is not None
+    assert refreshed.s3_url == (
+        "https://my-bucket.s3.us-east-1.amazonaws.com/d2s/host/raw.zip"
+    )
+
+
+def test_clear_s3_urls_for_project_only_clears_matching_project(db: Session) -> None:
+    raw_a = SampleRawData(db)
+    raw_b = SampleRawData(db)
+
+    crud.raw_data.update_s3_url(db, raw_data_id=raw_a.obj.id, s3_url="https://a")
+    crud.raw_data.update_s3_url(db, raw_data_id=raw_b.obj.id, s3_url="https://b")
+
+    rowcount = crud.raw_data.clear_s3_urls_for_project(db, project_id=raw_a.project.id)
+
+    assert rowcount == 1
+    assert crud.raw_data.get(db, id=raw_a.obj.id).s3_url is None
+    assert crud.raw_data.get(db, id=raw_b.obj.id).s3_url == "https://b"
+
+
+def test_get_raw_data_with_s3_urls_for_project(db: Session) -> None:
+    raw_uploaded = SampleRawData(db)
+    raw_not_uploaded = SampleRawData(
+        db, project=raw_uploaded.project, flight=raw_uploaded.flight
+    )
+
+    crud.raw_data.update_s3_url(
+        db,
+        raw_data_id=raw_uploaded.obj.id,
+        s3_url="https://my-bucket.s3.us-east-1.amazonaws.com/key",
+    )
+
+    results = crud.raw_data.get_raw_data_with_s3_urls_for_project(
+        db, project_id=raw_uploaded.project.id
+    )
+
+    result_ids = {rd.id for rd in results}
+    assert raw_uploaded.obj.id in result_ids
+    assert raw_not_uploaded.obj.id not in result_ids

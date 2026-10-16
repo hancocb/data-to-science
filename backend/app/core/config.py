@@ -5,10 +5,10 @@ from fastapi_mail.config import ConnectionConfig
 from pydantic import (
     AnyHttpUrl,
     EmailStr,
-    field_validator,
-    ValidationInfo,
     PostgresDsn,
     SecretStr,
+    ValidationInfo,
+    field_validator,
 )
 from pydantic_settings import BaseSettings
 
@@ -17,9 +17,17 @@ class Settings(BaseSettings):
     ENV: str = "dev"
     API_V1_STR: str = "/api/v1"
 
+    # Comma-separated list of browser origins allowed to make credentialed
+    # (cookie-bearing) cross-origin requests. Empty falls back to anonymous GETs
+    # from any origin. Kept as a plain string (split at use site) because the list
+    # may include non-HTTP schemes such as "tauri://localhost".
+    BACKEND_CORS_ORIGINS: str = ""
+
     SECRET_KEY: str = ""
     # Secret key used for signing pg_tileserv and titiler requests
     TILE_SIGNING_SECRET_KEY: str = ""
+    # Titiler service probed on startup to verify a supported version is running
+    TITILER_URL: str = "http://titiler:8888"
 
     @field_validator("SECRET_KEY", "TILE_SIGNING_SECRET_KEY", mode="before")
     def validate_secret_keys(cls, v: str | None, info: ValidationInfo) -> str:
@@ -35,8 +43,14 @@ class Settings(BaseSettings):
     # 15 minutes
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    # Grace window (seconds) during which a just-rotated refresh token is still
+    # accepted, so concurrent/cross-tab refreshes do not self-revoke each other.
+    REFRESH_TOKEN_REUSE_GRACE_SECONDS: int = 10
     # Activity tracking throttle in minutes (only update last_activity_at if older than this)
     ACTIVITY_TRACKING_THROTTLE_MINUTES: int = 15
+    # Raw data processing jobs with no word from the external service for this
+    # long are considered stale and marked failed on the next processing request
+    RAW_DATA_PROCESSING_TIMEOUT_HOURS: int = 24
 
     API_PROJECT_NAME: str = ""
     API_DOMAIN: str = ""
@@ -49,6 +63,12 @@ class Settings(BaseSettings):
 
     # OpenTelemetry
     ENABLE_OPENTELEMETRY: bool = False
+
+    # Rate limiting (slowapi)
+    RATE_LIMIT_ENABLED: bool = False
+    # Use Redis DB 1 to avoid colliding with Celery broker on DB 0.
+    # Defaults to in-memory, which is fine for local dev and single-worker deployments.
+    RATE_LIMIT_STORAGE_URI: str = "memory://"
 
     # Cloudflare Turnstile
     TURNSTILE_SECRET_KEY: str | None = None
@@ -145,7 +165,17 @@ class Settings(BaseSettings):
     STAC_BROWSER_URL: Optional[AnyHttpUrl] = None
     EXTERNAL_VIEWER_URL: Optional[AnyHttpUrl] = None
 
+    # AWS S3 storage for STAC publishing
+    AWS_S3_BUCKET_NAME: Optional[str] = None
+    AWS_S3_REGION: Optional[str] = None
+    AWS_ACCESS_KEY_ID: Optional[str] = None
+    AWS_SECRET_ACCESS_KEY: Optional[str] = None
+
     @field_validator(
+        "AWS_ACCESS_KEY_ID",
+        "AWS_S3_BUCKET_NAME",
+        "AWS_S3_REGION",
+        "AWS_SECRET_ACCESS_KEY",
         "EXTERNAL_VIEWER_URL",
         "MAPBOX_ACCESS_TOKEN",
         "STAC_API_URL",

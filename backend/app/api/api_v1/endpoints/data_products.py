@@ -2,43 +2,67 @@ import json
 import logging
 import os
 import shutil
+import xml.etree.ElementTree as ET
 from io import BytesIO
 from pathlib import Path
-from typing import Annotated, Any, Optional, Sequence, Union
-from urllib.parse import urlparse, parse_qs
+from typing import Annotated, Any, Optional, Sequence, Union, cast
+from urllib.parse import parse_qs, urlparse
 from uuid import UUID, uuid4
 
 import segno
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import StreamingResponse
-from geojson_pydantic import Feature, FeatureCollection, Polygon, MultiPolygon
-from pydantic import BaseModel, UUID4
-from sqlalchemy import func, select
+from fastapi.responses import FileResponse, StreamingResponse
+from geojson_pydantic import Feature, FeatureCollection, MultiPolygon, Polygon
+from pydantic import UUID4
+from sqlalchemy import and_, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import crud, models, schemas
 from app.api import deps, utils
 from app.core import security
 from app.core.config import settings
+from app.core.limiter import limiter
+from app.models.constants import NON_RASTER_TYPES, XML_METADATA_EXCLUDED_TYPES
 from app.models.vector_layer import VectorLayer
 from app.schemas.data_product_metadata import ZonalStatisticsProps
 from app.schemas.job import Status
 from app.schemas.role import Role
+from app.schemas.shortened_url import ShortenedUrlApiResponse, UrlPayload
+from app.tasks.raw_image_processing_tasks import fail_job
 from app.tasks.toolbox_tasks import (
-    calculate_zonal_statistics,
     calculate_bulk_zonal_statistics,
+    calculate_zonal_statistics,
     run_toolbox,
 )
-from app.schemas.shortened_url import ShortenedUrlApiResponse, UrlPayload
 from app.utils.job_manager import JobManager
+from app.utils.raster_export import (
+    RasterInputError,
+    SymbologyError,
+    create_export_work_dir,
+    export_raster_to_jpeg,
+)
+from app.utils.stac.STACProperties import STACProperties
 from app.utils.tusd.post_processing import process_data_product_uploaded_to_tusd
-
 
 router = APIRouter()
 
 
 logger = logging.getLogger("__name__")
+
+
+XML_FILE_MAX_SIZE = 10 * 1024 * 1024  # 10 MiB
 
 
 def get_static_dir() -> str:
@@ -150,27 +174,103 @@ def get_shortened_url(
         return schemas.ShortenedUrlApiResponse(shortened_url=url)
 
 
+@router.post("/{data_product_id}/like", status_code=status.HTTP_201_CREATED)
+def like_data_product(
+    data_product_id: UUID,
+    current_user: models.User = Depends(deps.get_current_approved_user),
+    data_product: models.DataProduct = Depends(deps.can_read_or_public_data_product),
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """Like a data product. Returns 400 if already liked."""
+    existing = crud.data_product_like.get_by_data_product_id_and_user_id(
+        db, data_product_id=data_product_id, user_id=current_user.id
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Data product already liked",
+        )
+    try:
+        crud.data_product_like.create(
+            db,
+            obj_in=schemas.DataProductLikeCreate(
+                data_product_id=data_product_id, user_id=current_user.id
+            ),
+        )
+    except IntegrityError:
+        # Concurrent like for the same user/product hit the unique constraint.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Data product already liked",
+        )
+    like_count = crud.data_product_like.get_count_by_data_product_id(
+        db, data_product_id=data_product_id
+    )
+    return {"liked": True, "like_count": like_count}
+
+
+@router.delete("/{data_product_id}/like", status_code=status.HTTP_200_OK)
+def unlike_data_product(
+    data_product_id: UUID,
+    current_user: models.User = Depends(deps.get_current_approved_user),
+    data_product: models.DataProduct = Depends(deps.can_read_or_public_data_product),
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """Remove a like from a data product. Returns 400 if not currently liked."""
+    existing = crud.data_product_like.get_by_data_product_id_and_user_id(
+        db, data_product_id=data_product_id, user_id=current_user.id
+    )
+    if not existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Data product not liked",
+        )
+    crud.data_product_like.remove(db, id=existing.id)
+    like_count = crud.data_product_like.get_count_by_data_product_id(
+        db, data_product_id=data_product_id
+    )
+    return {"liked": False, "like_count": like_count}
+
+
+@router.post("/{data_product_id}/view")
+def record_data_product_view(
+    data_product_id: UUID,
+    response: Response,
+    current_user: models.User = Depends(deps.get_current_approved_user),
+    data_product: models.DataProduct = Depends(deps.can_read_data_product),
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """Record a view for a data product. Returns 201 on insert, 200 on dedup-skip."""
+    view = crud.data_product_view.create_if_not_recent(
+        db, data_product_id=data_product_id, user_id=current_user.id
+    )
+    if view:
+        response.status_code = status.HTTP_201_CREATED
+        return {"message": "View recorded"}
+    response.status_code = status.HTTP_200_OK
+    return {"message": "View already recorded"}
+
+
 @router.get("/{data_product_id}", response_model=schemas.DataProduct)
 def read_data_product(
     data_product_id: UUID,
     flight_id: UUID,
     current_user: models.User = Depends(deps.get_current_approved_user),
-    flight: models.Flight = Depends(deps.can_read_flight),
+    data_product: models.DataProduct = Depends(deps.can_read_data_product),
     db: Session = Depends(deps.get_db),
 ) -> Any:
-    """Retrieve raw data for flight if user can access it."""
-    if not flight:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Flight not found"
-        )
+    """Retrieve a data product if the user can access it.
+
+    Authorization (and the data-product-belongs-to-flight check) is enforced by
+    the can_read_data_product dependency; this returns the enriched read model.
+    """
     upload_dir = get_static_dir()
-    data_product = crud.data_product.get_single_by_id(
+    return crud.data_product.get_single_by_id(
         db,
         data_product_id=data_product_id,
         upload_dir=upload_dir,
         user_id=current_user.id,
     )
-    return data_product
 
 
 @router.get("", response_model=Sequence[schemas.DataProduct])
@@ -189,6 +289,110 @@ def read_all_data_product(
         db, flight_id=flight.id, upload_dir=upload_dir, user_id=current_user.id
     )
     return all_data_product
+
+
+@router.post(
+    "/{data_product_id}/export/jpeg",
+    # Declared so the generated docs advertise an image rather than the JSON they
+    # would assume from the return annotation
+    response_class=FileResponse,
+    responses={
+        status.HTTP_200_OK: {
+            "content": {"image/jpeg": {}},
+            "description": "Exported image.",
+        }
+    },
+)
+# Each export runs GDAL on the request path and writes its intermediates to a
+# tmpfs, so the work is bounded per caller as well as per request
+@limiter.limit("10/minute")
+def export_data_product_to_jpeg(
+    request: Request,
+    export_in: schemas.RasterExportRequest,
+    background_tasks: BackgroundTasks,
+    project: models.Project = Depends(deps.can_read_project),
+    flight: models.Flight = Depends(deps.can_read_flight),
+    data_product: models.DataProduct = Depends(deps.can_read_data_product),
+) -> Any:
+    """Export a raster data product as a JPEG image.
+
+    Symbology settings are optional. When provided, the color ramp, rescaling, and
+    band composition chosen on the map are applied to the exported image. Access is
+    limited to project members by the can_read_data_product dependency.
+    """
+    if data_product.data_type in NON_RASTER_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This data product cannot be exported as an image",
+        )
+
+    work_dir = create_export_work_dir()
+
+    # Named from the project, flight date, and data type rather than from
+    # original_filename, so an uploader's file name is never handed to whoever
+    # downloads the export
+    out_jpeg = work_dir / utils.get_data_product_download_name(
+        project_title=project.title,
+        acquisition_date=flight.acquisition_date,
+        data_type=data_product.data_type,
+        extension=".jpg",
+    )
+
+    # None keys are dropped so the export sees the same shape the map sent, where
+    # an absent value means "fall back" rather than "use None"
+    symbology = (
+        export_in.settings.model_dump(exclude_none=True) if export_in.settings else None
+    )
+
+    # The outer handler is what guarantees the work directory is removed on every
+    # failure. FastAPI attaches background tasks to the returned Response, so a
+    # cleanup task registered before a raised HTTPException never runs at all and
+    # the directory would survive in a tmpfs that only a container restart
+    # reclaims. Keeping it here rather than in each branch below means a new
+    # branch cannot forget it.
+    try:
+        try:
+            export_raster_to_jpeg(
+                Path(data_product.filepath),
+                out_jpeg,
+                cast(STACProperties, data_product.stac_properties),
+                symbology=symbology,
+                work_dir=work_dir,
+            )
+        except SymbologyError as e:
+            logger.warning(f"Invalid symbology for data product {data_product.id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="These display settings cannot be applied to this image",
+            )
+        except RasterInputError as e:
+            # The stored file is missing, empty, or unreadable. Nothing the user
+            # can fix, so log where operators will see it rather than as a warning.
+            logger.error(f"Unable to export data product {data_product.id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This data product cannot be exported as an image",
+            )
+        except ValueError as e:
+            logger.warning(f"Unable to export data product {data_product.id}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This data product cannot be exported as an image",
+            )
+        except Exception:
+            logger.exception(f"Unable to export data product {data_product.id}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Unable to create image export",
+            )
+    except Exception:
+        utils.cleanup_temp(str(work_dir))
+        raise
+
+    # Safe to defer now that the response is on its way out
+    background_tasks.add_task(utils.cleanup_temp, str(work_dir))
+
+    return FileResponse(out_jpeg, media_type="image/jpeg", filename=out_jpeg.name)
 
 
 @router.put("/{data_product_id}/bands", response_model=schemas.DataProduct)
@@ -314,13 +518,7 @@ def deactivate_data_product(
             status_code=status.HTTP_403_FORBIDDEN, detail="Access forbidden"
         )
 
-    # Check if project is published
-    if project.is_published:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot deactivate data product when project is published in a STAC catalog",
-        )
-
+    # crud.data_product.deactivate refuses a project published in a STAC catalog
     deactivated_data_product = crud.data_product.deactivate(
         db, data_product_id=data_product_id
     )
@@ -329,6 +527,136 @@ def deactivate_data_product(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Unable to deactivate"
         )
     return deactivated_data_product
+
+
+@router.post(
+    "/{data_product_id}/xml",
+    response_model=schemas.DataProductMetadata,
+    status_code=status.HTTP_201_CREATED,
+)
+def upload_data_product_xml(
+    data_product_id: UUID,
+    file: UploadFile,
+    current_user: models.User = Depends(deps.get_current_approved_user),
+    flight: models.Flight = Depends(deps.can_read_write_flight),
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """Uploads XML file and associates it with a data product. Only one XML file
+    can be associated with a data product at a time. The existing XML file must
+    be deleted before a new one can be uploaded.
+    """
+    if not flight:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Flight not found"
+        )
+
+    upload_dir = get_static_dir()
+    data_product = crud.data_product.get_single_by_id(
+        db,
+        data_product_id=data_product_id,
+        upload_dir=upload_dir,
+        user_id=current_user.id,
+    )
+    if not data_product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
+        )
+
+    # xml metadata limited to raster and point cloud data products
+    if data_product.data_type.lower() in XML_METADATA_EXCLUDED_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "XML metadata is only supported for raster and point cloud "
+                "data products"
+            ),
+        )
+
+    # only accept files with an .xml extension
+    if not file.filename or Path(file.filename).suffix.lower() != ".xml":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File must have an .xml extension",
+        )
+
+    # limit file size and verify file contains well-formed xml
+    xml_content = file.file.read()
+    if len(xml_content) > XML_FILE_MAX_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="XML file exceeds maximum size of 10 MB",
+        )
+    try:
+        ET.fromstring(xml_content)
+    except ET.ParseError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File is not well-formed XML",
+        )
+
+    # only one xml file allowed per data product
+    existing_metadata = crud.data_product_metadata.get_by_data_product(
+        db, category="xml", data_product_id=data_product_id
+    )
+    if len(existing_metadata) > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Data product already has an XML file. "
+                "Delete it before uploading a new one."
+            ),
+        )
+
+    # write xml file to data product directory
+    data_product_dir = utils.get_data_product_dir(
+        str(flight.project_id), str(flight.id), str(data_product_id)
+    )
+    xml_filepath = data_product_dir / f"{uuid4()}.xml"
+    with open(xml_filepath, "wb") as xml_file:
+        xml_file.write(xml_content)
+
+    metadata_in = schemas.DataProductMetadataCreate(
+        category="xml",
+        properties={
+            "filepath": str(xml_filepath),
+            "original_filename": file.filename,
+            "file_size": len(xml_content),
+        },
+    )
+    metadata = crud.data_product_metadata.create_with_data_product(
+        db, obj_in=metadata_in, data_product_id=data_product_id
+    )
+    return metadata
+
+
+@router.delete("/{data_product_id}/xml", response_model=schemas.DataProductMetadata)
+def delete_data_product_xml(
+    data_product_id: UUID,
+    current_user: models.User = Depends(deps.get_current_approved_user),
+    flight: models.Flight = Depends(deps.can_read_write_flight),
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """Removes XML file associated with a data product."""
+    if not flight:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Flight not found"
+        )
+
+    existing_metadata = crud.data_product_metadata.get_by_data_product(
+        db, category="xml", data_product_id=data_product_id
+    )
+    if len(existing_metadata) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="XML file not found"
+        )
+
+    xml_metadata = existing_metadata[0]
+    xml_filepath = xml_metadata.properties.get("filepath")
+    if xml_filepath and os.path.exists(xml_filepath):
+        os.remove(xml_filepath)
+
+    removed_metadata = crud.data_product_metadata.remove(db, id=xml_metadata.id)
+    return removed_metadata
 
 
 @router.post("/create_from_ext_storage", status_code=status.HTTP_202_ACCEPTED)
@@ -377,7 +705,7 @@ def process_data_product_from_external_storage(
     # check if job failed
     if not payload.status.code:
         # update job table to show it failed
-        job.update(status=Status.FAILED)
+        fail_job(job, "Processing failed on the processing service.")
     else:
         # iterate over each new data product and start post processing celery task
         for data_product in payload.products:
@@ -388,12 +716,50 @@ def process_data_product_from_external_storage(
                     detail="Unable to locate data product on disk",
                 )
 
-        # copy report
+        # source raw data these products were derived from; the processing job
+        # row always carries raw_data_id (report is optional), so prefer it
+        source_raw_data_id = job.job.raw_data_id if job.job else None
+        if source_raw_data_id is None and payload.report:
+            source_raw_data_id = payload.report.raw_data_id
+
+        # create each data product and spawn its own post-processing job; done
+        # before marking this job SUCCESS so the created ids can be recorded and
+        # so a failure here fails this job instead of stranding it INPROGRESS
+        created_products = []
         try:
-            if (
-                payload.report
-                and os.path.exists(payload.report.storage_path)
-                and os.path.join(
+            for data_product in payload.products:
+                result = process_data_product_uploaded_to_tusd(
+                    db=db,
+                    user_id=user.id,
+                    storage_path=Path(data_product.storage_path),
+                    original_filename=Path(data_product.filename),
+                    dtype=data_product.data_type,
+                    project_id=project_id,
+                    flight_id=flight_id,
+                    project_to_utm=True,
+                    raw_data_id=source_raw_data_id,
+                )
+                created_products.append(
+                    {
+                        "id": result["data_product_id"],
+                        "data_type": result["data_type"],
+                    }
+                )
+        except Exception as e:
+            logger.exception(f"Unable to create data product from raw data: {e}")
+            fail_job(job, "Processing failed on the processing service.")
+            crud.user.remove_single_use_token(db, db_obj=token_db_obj)
+            raise
+
+        # merge into existing extra; JobManager.update replaces extra wholesale
+        # and skips falsy values, so always build a full dict
+        success_extra = dict(job.job.extra) if job.job and job.job.extra else {}
+
+        # copy report using a per-job filename so reports from earlier runs
+        # are preserved for the processing history
+        try:
+            if payload.report and os.path.exists(payload.report.storage_path):
+                raw_data_dir = os.path.join(
                     get_static_dir(),
                     "projects",
                     str(project_id),
@@ -402,49 +768,35 @@ def process_data_product_from_external_storage(
                     "raw_data",
                     str(payload.report.raw_data_id),
                 )
-            ):
-                shutil.copyfile(
-                    payload.report.storage_path,
-                    os.path.join(
-                        get_static_dir(),
-                        "projects",
-                        str(project_id),
-                        "flights",
-                        str(flight_id),
-                        "raw_data",
-                        str(payload.report.raw_data_id),
-                        os.path.basename(payload.report.storage_path),
-                    ),
-                )
+                if os.path.isdir(raw_data_dir):
+                    report_path = os.path.join(
+                        raw_data_dir, f"report_{payload.job_id}.pdf"
+                    )
+                    shutil.copyfile(payload.report.storage_path, report_path)
+                    # store the static path only; the jobs endpoint composes
+                    # the absolute URL at read time
+                    success_extra["report"] = report_path
+                else:
+                    logger.error("Raw data directory does not exist")
             else:
-                logger.error(
-                    "Report does not exist on network storage or raw data directory does not exist"
-                )
+                logger.error("Report does not exist on network storage")
         except Exception as e:
             logger.exception(f"Unable to copy report to raw data directory: {e}")
 
-        # data products successfully derived from raw data
-        job.update(status=Status.SUCCESS)
+        # record the products this run produced so the processing history can
+        # show which data products came from this raw data upload
+        if created_products:
+            success_extra["data_products"] = created_products
 
-        # new jobs will be spawned for each data product as its processed further
-        for data_product in payload.products:
-            process_data_product_uploaded_to_tusd(
-                db=db,
-                user_id=user.id,
-                storage_path=Path(data_product.storage_path),
-                original_filename=Path(data_product.filename),
-                dtype=data_product.data_type,
-                project_id=project_id,
-                flight_id=flight_id,
-                project_to_utm=True,
-            )
+        # data products successfully derived from raw data
+        job.update(status=Status.SUCCESS, extra=success_extra or None)
 
     # remove token from database
     crud.user.remove_single_use_token(db, db_obj=token_db_obj)
 
 
 @router.post("/{data_product_id}/tools", status_code=status.HTTP_202_ACCEPTED)
-async def run_processing_tool(
+def run_processing_tool(
     data_product_id: UUID,
     toolbox_in: schemas.ProcessingRequest,
     current_user: models.User = Depends(deps.get_current_approved_user),
@@ -712,27 +1064,87 @@ async def run_processing_tool(
         )
 
     # zonal
-    if toolbox_in.zonal and not os.environ.get("RUNNING_TESTS") == "1":
+    accepted_jobs = []
+    if toolbox_in.zonal:
+        if not toolbox_in.zonal_layer_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Vector layer is required for zonal statistics",
+            )
         features = crud.vector_layer.get_vector_layer_by_id(
             db, project_id=project.id, layer_id=toolbox_in.zonal_layer_id
         )
+        if len(features) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Vector layer not found",
+            )
+        for feature in features:
+            geom_type = feature.geometry.type if feature.geometry else None
+            if geom_type not in ("Polygon", "MultiPolygon"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Vector layer must only contain polygon features",
+                )
         feature_collection = FeatureCollection(
             **{"type": "FeatureCollection", "features": features}
         )
-        calculate_bulk_zonal_statistics.apply_async(
-            args=(
-                data_product.filepath,
-                data_product_id,
-                jsonable_encoder(feature_collection.__dict__),
-            )
+        # create job up front so its id can be returned to the client;
+        # layer_id in extra lets clients match the job to a vector layer
+        zonal_job = JobManager(
+            data_product_id=data_product_id,
+            job_name="zonal",
+            extra={"layer_id": toolbox_in.zonal_layer_id},
+            db=db,
         )
+        try:
+            calculate_bulk_zonal_statistics.apply_async(
+                args=(
+                    data_product.filepath,
+                    data_product_id,
+                    jsonable_encoder(feature_collection.__dict__),
+                    zonal_job.job_id,
+                )
+            )
+        except Exception:
+            # dispatch failed; no worker will ever update the job, so mark it
+            # failed instead of leaving it WAITING forever
+            zonal_job.update(status=Status.FAILED)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Unable to start zonal statistics job",
+            )
+        accepted_jobs.append(
+            {
+                "id": zonal_job.job_id,
+                "name": "zonal",
+                "layer_id": toolbox_in.zonal_layer_id,
+            }
+        )
+
+    return {"jobs": accepted_jobs}
+
+
+@router.get("/{data_product_id}/jobs", response_model=Sequence[schemas.Job])
+def read_data_product_jobs(
+    name: Optional[str] = None,
+    current_user: models.User = Depends(deps.get_current_approved_user),
+    data_product: models.DataProduct = Depends(deps.can_read_data_product),
+    db: Session = Depends(deps.get_db),
+) -> Any:
+    """Retrieve jobs associated with a data product, optionally filtered by
+    job name (e.g., "zonal"). Newest jobs are returned first.
+    """
+    return crud.job.get_multi_by_data_product(
+        db, data_product_id=data_product.id, job_name=name
+    )
 
 
 @router.post(
     "/{data_product_id}/zonal_statistics",
     response_model=Feature[Union[Polygon, MultiPolygon], ZonalStatisticsProps],
 )
-async def create_zonal_statistics(
+def create_zonal_statistics(
     data_product_id: UUID,
     zone_in: Feature,
     current_user: models.User = Depends(deps.get_current_approved_user),
@@ -750,6 +1162,10 @@ async def create_zonal_statistics(
         upload_dir=upload_dir,
         user_id=current_user.id,
     )
+    if not data_product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Data product not found"
+        )
 
     if not zone_in.properties:
         raise HTTPException(
@@ -759,11 +1175,28 @@ async def create_zonal_statistics(
 
     vector_layer_feature_id = zone_in.properties.get("feature_id", None)
 
+    # only trust a claimed feature id if it resolves to an active vector layer
+    # in this flight's project; a stale id (e.g., embedded in a re-uploaded
+    # export) must not return another feature's cached stats and geometry
+    if vector_layer_feature_id and utils.is_valid_uuid(vector_layer_feature_id):
+        feature_in_project_query = select(VectorLayer.feature_id).where(
+            and_(
+                VectorLayer.feature_id == vector_layer_feature_id,
+                VectorLayer.project_id == flight.project_id,
+                VectorLayer.is_active,
+            )
+        )
+        with db as session:
+            if session.execute(feature_in_project_query).scalar_one_or_none() is None:
+                vector_layer_feature_id = None
+    else:
+        vector_layer_feature_id = None
+
     # required zonal stats
     required_stats = {"count", "min", "max", "mean", "median", "std"}
 
     # check if zonal stats already exist for this feature/data product
-    if vector_layer_feature_id and utils.is_valid_uuid(vector_layer_feature_id):
+    if vector_layer_feature_id:
         metadata = crud.data_product_metadata.get_by_data_product(
             db,
             category="zonal",
@@ -772,11 +1205,7 @@ async def create_zonal_statistics(
         )
         if len(metadata) == 1:
             # return previously generated zonal stats
-            if (
-                "stats" in metadata[0].properties
-                and vector_layer_feature_id
-                and utils.is_valid_uuid(vector_layer_feature_id)
-            ):
+            if "stats" in metadata[0].properties:
                 # if all required stats are present
                 if all(
                     key in metadata[0].properties["stats"] for key in required_stats
@@ -817,7 +1246,7 @@ async def create_zonal_statistics(
             detail="Unable to calculate zonal statistics",
         )
 
-    if vector_layer_feature_id and utils.is_valid_uuid(vector_layer_feature_id):
+    if vector_layer_feature_id:
         metadata_in = schemas.DataProductMetadataCreate(
             category="zonal",
             properties={"stats": zonal_stats[0]},
@@ -839,7 +1268,13 @@ async def create_zonal_statistics(
                 **zonal_stats[0],
             }
 
-    return update_feature_properties(Feature(**vector_layer_geojson_dict))
+        return update_feature_properties(Feature(**vector_layer_geojson_dict))
+
+    # anonymous zone (no matching vector layer in this project): return the
+    # submitted feature with stats merged, without caching metadata
+    zone_dict = zone_in.model_dump()
+    zone_dict["properties"] = {**(zone_in.properties or {}), **zonal_stats[0]}
+    return update_feature_properties(Feature(**zone_dict))
 
 
 @router.get(

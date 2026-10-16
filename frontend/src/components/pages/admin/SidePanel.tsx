@@ -1,11 +1,11 @@
 import clsx from 'clsx';
 import { Link, useLocation } from 'react-router';
 import {
+  BoltIcon,
   CircleStackIcon,
   HomeIcon,
   MapIcon,
   PuzzlePieceIcon,
-  PresentationChartBarIcon,
   UsersIcon,
 } from '@heroicons/react/24/outline';
 
@@ -14,7 +14,9 @@ export default function SidePanel() {
   const currentPage = pathname.split('/').slice(-1)[0];
 
   return (
-    <div className="flex h-full w-12 md:w-16 flex-col justify-between border-e z-1000">
+    // `relative` is required for z-1000 to apply: the hover tooltips overflow
+    // into the content column and would otherwise paint under the charts.
+    <div className="relative flex h-full w-12 md:w-16 flex-col justify-between border-e z-1000">
       <div>
         <div className="border-t border-gray-100">
           <div className="px-1 md:px-2">
@@ -27,7 +29,7 @@ export default function SidePanel() {
                     'bg-blue-50 text-blue-700': currentPage === 'dashboard',
                     'text-gray-500 hover:bg-gray-50 hover:text-gray-700':
                       currentPage !== 'dashboard',
-                  }
+                  },
                 )}
               >
                 <HomeIcon className="h-5 w-5 opacity-75" strokeWidth={2} />
@@ -48,7 +50,7 @@ export default function SidePanel() {
                       'bg-blue-50 text-blue-700': currentPage === 'users',
                       'text-gray-500 hover:bg-gray-50 hover:text-gray-700':
                         currentPage !== 'users',
-                    }
+                    },
                   )}
                 >
                   <UsersIcon className="h-5 w-5 opacity-75" strokeWidth={2} />
@@ -68,7 +70,7 @@ export default function SidePanel() {
                       'bg-blue-50 text-blue-700': currentPage === 'map',
                       'text-gray-500 hover:bg-gray-50 hover:text-gray-700':
                         currentPage !== 'map',
-                    }
+                    },
                   )}
                 >
                   <MapIcon className="h-5 w-5 opacity-75" strokeWidth={2} />
@@ -88,7 +90,7 @@ export default function SidePanel() {
                       'bg-blue-50 text-blue-700': currentPage === 'extensions',
                       'text-gray-500 hover:bg-gray-50 hover:text-gray-700':
                         currentPage !== 'extensions',
-                    }
+                    },
                   )}
                 >
                   <PuzzlePieceIcon
@@ -111,7 +113,7 @@ export default function SidePanel() {
                       'bg-blue-50 text-blue-700': currentPage === 'storage',
                       'text-gray-500 hover:bg-gray-50 hover:text-gray-700':
                         currentPage !== 'storage',
-                    }
+                    },
                   )}
                 >
                   <CircleStackIcon
@@ -127,23 +129,20 @@ export default function SidePanel() {
 
               <li>
                 <Link
-                  to="/admin/dashboard/charts"
+                  to="/admin/dashboard/activity"
                   className={clsx(
                     'group relative flex justify-center rounded-sm px-1 py-1.5 md:px-2',
                     {
-                      'bg-blue-50 text-blue-700': currentPage === 'charts',
+                      'bg-blue-50 text-blue-700': currentPage === 'activity',
                       'text-gray-500 hover:bg-gray-50 hover:text-gray-700':
-                        currentPage !== 'charts',
-                    }
+                        currentPage !== 'activity',
+                    },
                   )}
                 >
-                  <PresentationChartBarIcon
-                    className="h-5 w-5 opacity-75"
-                    strokeWidth={2}
-                  />
+                  <BoltIcon className="h-5 w-5 opacity-75" strokeWidth={2} />
 
                   <span className="invisible absolute start-full top-1/2 ms-4 -translate-y-1/2 rounded-sm bg-gray-900 px-2 py-1.5 text-xs font-medium text-white group-hover:visible">
-                    Charts
+                    User Activity
                   </span>
                 </Link>
               </li>

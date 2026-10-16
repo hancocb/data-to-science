@@ -32,10 +32,17 @@ export interface DataProduct {
     unit: string;
   };
   data_type: string;
+  // Safe name for downloads, built server-side from the project, flight date,
+  // and data type. Use this rather than original_filename, which is untrusted
+  // user input and must not be handed back to downloaders.
+  download_filename?: string | null;
   filepath: string;
   flight_id: string;
+  like_count?: number;
+  liked?: boolean;
   original_filename: string;
   public: boolean;
+  raw_data_id?: string | null;
   resolution?: {
     unit: string;
     x: number;
@@ -49,6 +56,15 @@ export interface DataProduct {
   status: string;
   url: string;
   user_style: SingleBandSymbology | MultibandSymbology;
+  view_count?: number;
+  xml_metadata?: XmlMetadata | null;
+}
+
+// supplemental xml file attached to a data product
+export interface XmlMetadata {
+  original_filename: string;
+  file_size: number;
+  content: string;
 }
 
 // earth observation info from gdalinfo
@@ -215,10 +231,11 @@ export interface ProjectItem {
   description: string;
   field: FieldGeoJSONFeature;
   flight_count: number;
-  liked: boolean;
+  is_public?: boolean;
+  liked?: boolean;
   location_id: string;
   most_recent_flight: string;
-  role: string;
+  role?: string | null;
   team: Team | null;
   team_id: string;
   title: string;
@@ -250,6 +267,7 @@ export interface ProjectModule {
 export interface ProjectPointFeatureProperties {
   id: string;
   description: string;
+  is_public?: boolean;
   title: string;
 }
 

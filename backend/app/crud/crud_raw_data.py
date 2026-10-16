@@ -9,8 +9,12 @@ from sqlalchemy import and_, select, update
 from sqlalchemy.orm import Session
 
 from app import crud
+from app.api.utils import get_static_dir
 from app.core.config import settings
 from app.crud.base import CRUDBase
+from app.crud.crud_admin import get_static_directory_size
+from app.crud.utils import raise_if_owning_project_published
+from app.models.flight import Flight
 from app.models.job import Job
 from app.models.raw_data import RawData
 from app.models.utils.utcnow import utcnow
@@ -75,9 +79,29 @@ class CRUDRawData(CRUDBase[RawData, RawDataCreate, RawDataUpdate]):
         return all_raw_data_with_status
 
     def deactivate(self, db: Session, raw_data_id: UUID) -> RawData | None:
+        """Deactivate raw data.
+
+        Raises:
+            PermissionDenied: If the project is published in a STAC catalog.
+        """
+        raise_if_owning_project_published(db, RawData, raw_data_id, "raw data")
+
+        return self.deactivate_unguarded(db, raw_data_id=raw_data_id)
+
+    def deactivate_unguarded(self, db: Session, raw_data_id: UUID) -> RawData | None:
+        """Deactivate raw data without checking the owning project.
+
+        Called by the flight and project cascades, whose entry point already
+        ran the published project check for everything it deactivates.
+
+        Deactivating already inactive raw data leaves it untouched, so deleting
+        the flight or project around it does not restart the retention window
+        the cleanup utilities measure from deactivated_at.
+        """
         update_raw_data_sql = (
             update(RawData)
             .where(RawData.id == raw_data_id)
+            .where(RawData.is_active)
             .values(is_active=False, deactivated_at=utcnow())
         )
         with db as session:
@@ -85,6 +109,78 @@ class CRUDRawData(CRUDBase[RawData, RawDataCreate, RawDataUpdate]):
             session.commit()
 
         return crud.raw_data.get(db, id=raw_data_id)
+
+    def set_file_size(self, db: Session, raw_data_id: UUID) -> int | None:
+        """Compute and persist the on-disk byte size of a raw data directory.
+
+        Captured at upload finalization (and by the backfill) so per-user data
+        usage is a fast SQL SUM instead of a filesystem walk at read time.
+        Returns the size in bytes, or None if the raw data no longer exists.
+        """
+        with db as session:
+            location = session.execute(
+                select(Flight.project_id, RawData.flight_id)
+                .join(Flight, Flight.id == RawData.flight_id)
+                .where(RawData.id == raw_data_id)
+            ).first()
+            if location is None:
+                return None
+            project_id, flight_id = location
+            raw_data_dir = os.path.join(
+                get_static_dir(),
+                "projects",
+                str(project_id),
+                "flights",
+                str(flight_id),
+                "raw_data",
+                str(raw_data_id),
+            )
+            file_size = get_static_directory_size(raw_data_dir)
+            session.execute(
+                update(RawData)
+                .where(RawData.id == raw_data_id)
+                .values(file_size=file_size)
+            )
+            session.commit()
+        return file_size
+
+    def update_s3_url(self, db: Session, raw_data_id: UUID, s3_url: str) -> None:
+        """Set the s3_url for a single raw data record."""
+        stmt = update(RawData).where(RawData.id == raw_data_id).values(s3_url=s3_url)
+        with db as session:
+            session.execute(stmt)
+            session.commit()
+
+    def clear_s3_urls_for_project(self, db: Session, project_id: UUID) -> int:
+        """Bulk clear s3_url for all raw data in a project."""
+        stmt = (
+            update(RawData)
+            .where(
+                RawData.flight_id.in_(
+                    select(Flight.id).where(Flight.project_id == project_id)
+                ),
+                RawData.s3_url.isnot(None),
+            )
+            .values(s3_url=None)
+        )
+        with db as session:
+            result = session.execute(stmt)
+            session.commit()
+            return result.rowcount
+
+    def get_raw_data_with_s3_urls_for_project(
+        self, db: Session, project_id: UUID
+    ) -> Sequence[RawData]:
+        """Return raw data records with non-null s3_url for a project."""
+        stmt = select(RawData).where(
+            RawData.flight_id.in_(
+                select(Flight.id).where(Flight.project_id == project_id)
+            ),
+            RawData.s3_url.isnot(None),
+            RawData.is_active,
+        )
+        with db as session:
+            return session.execute(stmt).scalars().all()
 
 
 def set_status_attr(raw_data_obj: RawData, jobs: List[Job]) -> bool:
@@ -122,9 +218,19 @@ def set_report_attr(raw_data_obj: RawData) -> None:
         raw_data_obj (RawData): RawData object.
     """
     if os.path.exists(raw_data_obj.filepath):
-        report_path = os.path.join(Path(raw_data_obj.filepath).parents[0], "report.pdf")
-        if os.path.exists(report_path):
-            static_url = f"{settings.API_DOMAIN}{report_path}"
+        # newest report wins; matches per-job "report_<job_id>.pdf" files and
+        # the legacy single "report.pdf"
+        try:
+            reports = sorted(
+                Path(raw_data_obj.filepath).parents[0].glob("report*.pdf"),
+                key=lambda report: report.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            # a report removed between glob and stat must not break the list
+            return
+        if reports:
+            static_url = f"{settings.API_DOMAIN}{reports[0]}"
             setattr(raw_data_obj, "report", static_url)
 
 

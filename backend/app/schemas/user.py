@@ -1,8 +1,7 @@
 from datetime import datetime
-from typing import List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, UUID4, field_validator
-
+from pydantic import UUID4, AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator
 
 if TYPE_CHECKING:
     EmailStr = str
@@ -54,7 +53,11 @@ class UserInDBBase(UserBase):
 
 # additional properties to return via API
 class User(UserInDBBase):
-    api_access_token: Optional[str] = None
+    api_access_token: Optional[str] = Field(
+        None,
+        deprecated="Set only when the user has a single active key with the read "
+        "scope. Use /api/v1/api-keys instead.",
+    )
     exts: List[str] = []
     is_superuser: bool
     pending_email: Optional[str] = None

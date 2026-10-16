@@ -9,10 +9,9 @@ from app.db.base_class import Base
 from app.models.enums.project_type import ProjectType
 from app.schemas.project_member import Role
 
-
 if TYPE_CHECKING:
-    from .project import Project
     from .indoor_project import IndoorProject
+    from .project import Project
     from .user import User
 
 
@@ -62,14 +61,14 @@ class ProjectMember(Base):
         primaryjoin="and_(ProjectMember.project_type == 'PROJECT', ProjectMember.project_uuid == Project.id)",
         foreign_keys="[ProjectMember.project_uuid]",
         back_populates="members",
-        overlaps="indoor_project",
+        overlaps="indoor_project,indoor_members",
     )
     indoor_project: Mapped["IndoorProject"] = relationship(
         "IndoorProject",
         primaryjoin="and_(ProjectMember.project_type == 'INDOOR_PROJECT', ProjectMember.project_uuid == IndoorProject.id)",
         foreign_keys="[ProjectMember.project_uuid]",
         back_populates="indoor_members",
-        overlaps="uas_project",
+        overlaps="uas_project,members",
     )
     member: Mapped["User"] = relationship(back_populates="project_memberships")
     # TODO: Remove this relationship after migration

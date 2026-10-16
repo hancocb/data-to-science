@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Optional, Sequence
 from uuid import UUID
 
@@ -23,6 +23,32 @@ class CRUDJob(CRUDBase[Job, JobCreate, JobUpdate]):
             session.commit()
             session.refresh(job)
         return job
+
+    def get_multi_by_data_product(
+        self,
+        db: Session,
+        data_product_id: UUID,
+        job_name: Optional[str] = None,
+    ) -> Sequence[Job]:
+        select_statement = select(Job).where(Job.data_product_id == data_product_id)
+        if job_name:
+            select_statement = select_statement.where(Job.name == job_name)
+        select_statement = select_statement.order_by(Job.start_time.desc())
+        with db as session:
+            return session.scalars(select_statement).all()
+
+    def get_multi_by_raw_data(
+        self,
+        db: Session,
+        raw_data_id: UUID,
+        job_name: Optional[str] = None,
+    ) -> Sequence[Job]:
+        select_statement = select(Job).where(Job.raw_data_id == raw_data_id)
+        if job_name:
+            select_statement = select_statement.where(Job.name == job_name)
+        select_statement = select_statement.order_by(Job.start_time.desc())
+        with db as session:
+            return session.scalars(select_statement).all()
 
     def get_multi_by_flight(
         self, db: Session, flight_id: UUID, incomplete: bool = False
@@ -55,9 +81,9 @@ class CRUDJob(CRUDBase[Job, JobCreate, JobUpdate]):
             )
         with db as session:
             jobs = session.scalars(select_statement).all()
-            jobs2 = session.scalars(select(Job)).all()
-            dp = session.scalars(select(DataProduct)).all()
-            rd = session.scalars(select(RawData)).all()
+            session.scalars(select(Job)).all()
+            session.scalars(select(DataProduct)).all()
+            session.scalars(select(RawData)).all()
             return jobs
 
     def get_by_raw_data_id(

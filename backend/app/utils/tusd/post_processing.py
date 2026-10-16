@@ -12,7 +12,11 @@ from sqlalchemy.orm import Session
 
 from app import crud, schemas
 from app.api.api_v1.endpoints.raw_data import get_raw_data_dir
-from app.api.utils import get_data_product_dir, get_indoor_project_data_dir
+from app.api.utils import (
+    get_data_product_dir,
+    get_file_extension,
+    get_indoor_project_data_dir,
+)
 from app.core.config import settings
 from app.schemas.job import State, Status
 from app.tasks.post_upload_tasks import generate_point_cloud_preview
@@ -43,27 +47,6 @@ SUPPORTED_EXTENSIONS = {
 }
 
 
-def get_file_extension(filename: Path) -> str:
-    """Get the file extension, handling compound extensions like .copc.laz.
-
-    Args:
-        filename (Path): The filename to check
-
-    Returns:
-        str: The full extension including compound extensions
-    """
-    name = filename.name.lower()
-    if name.endswith(".copc.laz"):
-        return ".copc.laz"
-    elif name.endswith(".laz"):
-        return ".laz"
-    elif name.endswith(".las"):
-        return ".las"
-    elif name.endswith(".tif"):
-        return ".tif"
-    return filename.suffix.lower()
-
-
 def process_data_product_uploaded_to_tusd(
     db: Session,
     user_id: UUID,
@@ -73,6 +56,7 @@ def process_data_product_uploaded_to_tusd(
     project_id: UUID,
     flight_id: UUID,
     project_to_utm: bool = False,
+    raw_data_id: Optional[UUID] = None,
 ) -> Dict:
     """Post-processing method for data product uploaded to tus file server. Creates job
     for converting GeoTIFF (.tif) to Cloud Optimized GeoTIFF or converting point cloud
@@ -88,13 +72,16 @@ def process_data_product_uploaded_to_tusd(
         project_id (UUID): Project ID for data product's project.
         flight_id (UUID): Flight ID for data product's flight.
         project_to_utm (bool): Whether to project the GeoTIFF to UTM.
+        raw_data_id (Optional[UUID]): Source raw data upload this product was
+            derived from by the external processing service. None for directly
+            uploaded data products.
 
     Raises:
         HTTPException: Raised if file extension is not supported.
         HTTPException: Raised if unable to create job.
 
     Returns:
-        dict: Processing status.
+        dict: Processing status and the created data product's id and type.
     """
     # create new filename
     new_filename = str(uuid4())
@@ -109,7 +96,10 @@ def process_data_product_uploaded_to_tusd(
     data_product = crud.data_product.create_with_flight(
         db,
         obj_in=schemas.DataProductCreate(
-            data_type=dtype, filepath="null", original_filename=str(original_filename)
+            data_type=dtype,
+            filepath="null",
+            original_filename=str(original_filename),
+            raw_data_id=raw_data_id,
         ),
         flight_id=flight_id,
     )
@@ -146,7 +136,12 @@ def process_data_product_uploaded_to_tusd(
         if extension == ".zip":
             # start 3DGS LCC process in background (zip contains LCC format files)
             upload_3dgs_lcc.apply_async(
-                args=(str(storage_path), str(data_product_dir), job.id, data_product.id),
+                args=(
+                    str(storage_path),
+                    str(data_product_dir),
+                    job.id,
+                    data_product.id,
+                ),
             )
         else:
             # start 3D Gaussian Splatting process in background (.ply file)
@@ -166,7 +161,11 @@ def process_data_product_uploaded_to_tusd(
             ),
         )
 
-    return {"status": "processing"}
+    return {
+        "status": "processing",
+        "data_product_id": str(data_product.id),
+        "data_type": dtype,
+    }
 
 
 def process_raw_data_uploaded_to_tusd(

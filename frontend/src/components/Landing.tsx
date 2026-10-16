@@ -8,15 +8,28 @@ import brandLogo from '../assets/d2s-logo-amber-text-white-symbol.svg';
 import landingVideo from '../assets/landing.mp4';
 
 export default function Landing() {
-  const { user } = useContext(AuthContext);
+  const { user, authChecked } = useContext(AuthContext);
   const navigate = useNavigate();
   useEffect(() => {
+    // Wait until the cached profile (if any) has been verified before
+    // deciding where to send the user. Otherwise a stale profile with a
+    // dead session briefly looks authenticated and routes into protected
+    // /home, which then bounces to /auth/login once the session check
+    // fails, instead of falling back to the public /explore page.
+    if (!authChecked) return;
+
     if (user) {
       navigate('/home');
+    } else if (import.meta.env.VITE_STAC_ENABLED === 'true') {
+      navigate('/explore');
     }
-  }, [navigate, user]);
+  }, [navigate, user, authChecked]);
 
-  return !user ? (
+  if (!authChecked || user || import.meta.env.VITE_STAC_ENABLED === 'true') {
+    return null;
+  }
+
+  return (
     <div className="grid grid-flow-row auto-rows-max">
       {/* video pane */}
       <div className="h-screen">
@@ -38,16 +51,31 @@ export default function Landing() {
               </span>
             </div>
           </div>
-          <div className="mt-16 flex items-center justify-center gap-16">
-            <div className="w-full md:w-1/4">
-              <Link to="/auth/register">
-                <Button>Sign up</Button>
-              </Link>
+          <div className="mt-16 flex flex-col items-center gap-8">
+            <div className="w-full flex items-center justify-center gap-16">
+              <div className="w-full md:w-1/4">
+                <Link to="/auth/register">
+                  <Button title="Create a new account">Sign up</Button>
+                </Link>
+              </div>
+              <div className="w-full md:w-1/4">
+                <Link to="/auth/login">
+                  <LandingButton title="Sign in to your account">Sign in</LandingButton>
+                </Link>
+              </div>
             </div>
-            <div className="w-full md:w-1/4">
-              <Link to="/auth/login">
-                <LandingButton>Sign in</LandingButton>
-              </Link>
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-full md:w-auto">
+                <Link to="/explore">
+                  <button
+                    type="button"
+                    className="text-sm font-bold border-2 border-amber-400 bg-amber-400 text-white rounded-md py-2 px-4 w-full hover:bg-amber-500 hover:border-amber-500 ease-in-out duration-300"
+                    title="Browse published projects — no account needed"
+                  >
+                    Explore public data
+                  </button>
+                </Link>
+              </div>
             </div>
           </div>
         </div>
@@ -65,5 +93,5 @@ export default function Landing() {
       </div>
       {/* sign up pane */}
     </div>
-  ) : null;
+  );
 }

@@ -9,7 +9,7 @@ import { LinkOutlineButton } from '../../Buttons';
 import { formatDate } from './utils';
 
 export default function FlightCard({ flight }: { flight: Flight }) {
-  const { activeDataProduct } = useMapContext();
+  const { activeDataProduct, activeProject } = useMapContext();
 
   return (
     <LayerCard>
@@ -40,7 +40,7 @@ export default function FlightCard({ flight }: { flight: Flight }) {
           className="mt-0.5 group [&_summary::-webkit-details-marker]:hidden overflow-visible"
           open={activeDataProduct?.flight_id === flight.id}
         >
-          <summary className="text-sm cursor-pointer text-slate-600 hover:text-slate-800 hover:bg-slate-50 transition-colors flex items-center gap-1.5 px-2 py-1 -mx-2 rounded-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent2 focus-visible:ring-offset-1">
+          <summary className="text-sm cursor-pointer text-slate-600 hover:text-slate-800 hover:bg-slate-50 transition-colors flex items-center gap-1.5 px-2 py-1 -mx-2 rounded-sm max-md:min-h-[44px] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent2 focus-visible:ring-offset-1">
             <FaCircleChevronRight
               className="h-4 w-4 transition-transform group-open:rotate-90"
               aria-hidden="true"
@@ -52,14 +52,16 @@ export default function FlightCard({ flight }: { flight: Flight }) {
             {flight.data_products.map((dataProduct) => (
               <DataProductCard key={dataProduct.id} dataProduct={dataProduct} />
             ))}
-            <LinkOutlineButton
-              size="sm"
-              target="_blank"
-              title="Open data management page for this flight in a new tab"
-              url={`/projects/${flight.project_id}/flights/${flight.id}/data`}
-            >
-              Manage Data
-            </LinkOutlineButton>
+            {activeProject?.role && (
+              <LinkOutlineButton
+                size="sm"
+                target="_blank"
+                title="Open data management page for this flight in a new tab"
+                url={`/projects/${flight.project_id}/flights/${flight.id}/data`}
+              >
+                Manage Data
+              </LinkOutlineButton>
+            )}
           </div>
         </details>
       )}

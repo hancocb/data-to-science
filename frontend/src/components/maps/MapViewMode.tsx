@@ -15,10 +15,17 @@ import { useMapLayerContext } from './MapLayersContext';
 import { useRasterSymbologyContext } from './RasterSymbologyContext';
 
 import api from '../../api';
-import { mapApiResponseToLayers } from './utils';
+import { recordDataProductView } from '../../utils/recordDataProductView';
+import { isPublicOnly, mapApiResponseToLayers } from './utils';
 
 export default function MapViewMode() {
-  const { activeDataProduct, activeMapTool, activeProject } = useMapContext();
+  const {
+    activeDataProduct,
+    activeMapTool,
+    activeProject,
+    flightsDispatch,
+    pointCloudViewer,
+  } = useMapContext();
   const { mapboxAccessTokenDispatch, maptilerApiKeyDispatch } = useMapApiKeys();
   const {
     state: { layers },
@@ -97,30 +104,54 @@ export default function MapViewMode() {
           rasterId: rasterId,
         });
       }
-      // Fetch map layers for selected project
-      fetchMapLayers(activeProject.id);
+      // Only fetch vector layers when the user has project membership
+      if (!isPublicOnly(activeProject)) {
+        fetchMapLayers(activeProject.id);
+      } else {
+        dispatch({ type: 'SET_LAYERS', payload: [] });
+      }
     }
   }, [activeProject, dispatch, symbologyDispatch]);
 
+  // Record a view whenever a data product is activated. Covers every in-app
+  // viewer (point cloud, raster, panoramic, 3dgs, LCC) on both /explore and the
+  // workspace. The backend de-duplicates within a 30-minute window, so re-fires
+  // (including React StrictMode double-invocation) are harmless. The endpoint
+  // returns the authoritative view count, which we write back into flights
+  // state so the displayed count updates without an extra fetch.
+  useEffect(() => {
+    const dataProductId = activeDataProduct?.id;
+    if (!dataProductId) return;
+    let cancelled = false;
+    recordDataProductView(dataProductId).then((viewCount) => {
+      if (!cancelled && viewCount !== null) {
+        flightsDispatch({
+          type: 'update_view_count',
+          payload: { dataProductId, viewCount },
+        });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDataProduct?.id, flightsDispatch]);
+
   if (activeMapTool === 'compare') {
     return <CompareMap />;
-  } else if (
-    !activeDataProduct ||
-    (activeDataProduct &&
-      activeDataProduct.data_type !== 'point_cloud' &&
-      activeDataProduct.data_type !== 'panoramic' &&
-      activeDataProduct.data_type !== '3dgs')
-  ) {
-    return <HomeMap layers={layers} />;
-  } else if (activeDataProduct.data_type === 'panoramic') {
+  } else if (activeDataProduct?.data_type === 'panoramic') {
     return <PanoViewer imageUrl={activeDataProduct.url} />;
-  } else if (activeDataProduct.data_type === '3dgs') {
+  } else if (activeDataProduct?.data_type === '3dgs') {
     if (activeDataProduct.url.endsWith('.lcc')) {
       return <LCCViewer lccUrl={activeDataProduct.url} />;
     }
     return <PlayCanvasglTFViewer src={activeDataProduct.url} />;
+  } else if (
+    activeDataProduct?.data_type === 'point_cloud' &&
+    pointCloudViewer === 'potree'
+  ) {
+    return <PotreeViewer copcPath={activeDataProduct.url} />;
   } else {
-    const copcPath = activeDataProduct.url;
-    return <PotreeViewer copcPath={copcPath} />;
+    // no active product, raster, or point cloud in map mode
+    return <HomeMap layers={layers} />;
   }
 }

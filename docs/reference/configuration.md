@@ -8,7 +8,7 @@ D2S uses environment files to configure its services. This document describes al
 |----------|-------------|
 | `EXTERNAL_STORAGE` | Location where raw image zips and metadata will be sent for image processing jobs. It could be a mapped network drive or any other directory on the host machine. This **should be left empty** unless you have set up an image processing backend that works with the D2S image processing Celery task. |
 | `TUSD_STORAGE` | Location of Docker managed volume or mapped host directory that stores user uploaded datasets. |
-| `TILE_SIGNING_SECRET` | Secret key used for creating a signed URL that the client can use to access raster tiles and MVT tiles. |
+| `TILE_SIGNING_SECRET_KEY` | Secret key used for creating a signed URL that the client can use to access raster tiles and MVT tiles. |
 
 ## `frontend.env`
 
@@ -27,6 +27,11 @@ You must provide a value for `SECRET_KEY` in your `backend.env` file. Use a cryp
 |----------|-------------|
 | `API_PROJECT_NAME` | Name that will appear in the FastAPI docs. |
 | `API_DOMAIN` | Domain used for accessing the application (e.g., `http://localhost` or `https://customdomain`). |
+| `AWS_S3_BUCKET_NAME` | S3 bucket name for STAC asset storage (optional). When set, data products and raw data are uploaded to S3 during STAC publishing and the S3 URLs are used as asset hrefs in published items. Leave empty to use local server URLs. |
+| `AWS_S3_REGION` | AWS region for the S3 bucket (e.g., `us-east-1`). Defaults to `us-east-1` when unset. |
+| `AWS_ACCESS_KEY_ID` | AWS access key ID for the S3 bucket (optional). Leave empty to fall back to the boto3 default credential chain (e.g., IAM role). |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret access key for the S3 bucket (optional). Pair with `AWS_ACCESS_KEY_ID`. |
+| `BACKEND_CORS_ORIGINS` | Comma-separated list of browser origins allowed to make credentialed (cookie-bearing) cross-origin requests (e.g., `https://partner.app,https://viewer.partner.app`). When set, those origins may authenticate and call any method; when empty, the API falls back to allowing only anonymous `GET` requests from any origin. Required for partner web apps that log in cross-origin. |
 | `CELERY_BROKER_URL` | Address for local redis service. |
 | `CELERY_RESULT_BACKEND` | Address for local redis service. |
 | `BREEDBASE_ALLOWED_HOSTS` | Comma-separated list of allowed BreedBase hostnames for the BrAPI proxy (optional). When empty, any public host with a `/brapi/` path is allowed. Set to restrict which servers the proxy can reach. |
@@ -57,6 +62,7 @@ You must provide a value for `SECRET_KEY` in your `backend.env` file. Use a cryp
 | `STAC_API_URL` | URL for a STAC API. |
 | `STAC_API_TEST_URL` | URL for a STAC API that can be used for testing. |
 | `STAC_BROWSER_URL` | URL for STAC Browser site connected to the STAC API. |
+| `TITILER_URL` | Base URL for the TiTiler service probed on startup to verify a supported version is running. Defaults to `http://titiler:8888`, matching the `titiler` service in the Docker Compose config. |
 | `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret key for bot protection on registration (optional). Leave empty to disable. |
 | `HTTP_COOKIE_SECURE` | Set to `1` to only send cookies over HTTPS, `0` to allow HTTP. |
 | `LIMIT_MAX_REQUESTS` | Maximum number of requests a worker will handle before being restarted. |

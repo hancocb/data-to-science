@@ -13,6 +13,7 @@ import { Feature } from 'geojson';
 
 import api from '../../../api';
 import { useMapContext } from '../MapContext';
+import { isPublicOnly } from '../utils';
 
 export interface AnnotationTag {
   tag: { name: string } | null;
@@ -202,7 +203,7 @@ export function AnnotationProvider({
 
   const fetchAnnotations = useCallback(
     async (signal?: AbortSignal) => {
-      if (!activeProject || !activeDataProduct) {
+      if (!activeProject || !activeDataProduct || isPublicOnly(activeProject)) {
         dispatch({ type: 'CLEAR' });
         return;
       }
@@ -243,6 +244,16 @@ export function AnnotationProvider({
     setVisible(false);
   }, [activeDataProduct]);
 
+  // Close the annotation popup when its layer is hidden or unchecked
+  useEffect(() => {
+    if (
+      selectedAnnotationId &&
+      (!visible || !state.checkedIds.has(selectedAnnotationId))
+    ) {
+      setSelectedAnnotationId(null);
+    }
+  }, [visible, state.checkedIds, selectedAnnotationId]);
+
   // Debounced style persistence — saves to API 500ms after last change
   const saveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const stylesRef = useRef(state.styles);
@@ -250,7 +261,7 @@ export function AnnotationProvider({
 
   const debouncedSaveStyle = useCallback(
     (annotationId: string) => {
-      if (!activeProject || !activeDataProduct) return;
+      if (!activeProject || !activeDataProduct || isPublicOnly(activeProject)) return;
       clearTimeout(saveTimersRef.current[annotationId]);
       saveTimersRef.current[annotationId] = setTimeout(() => {
         const style = stylesRef.current[annotationId];
