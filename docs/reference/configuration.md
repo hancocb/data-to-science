@@ -38,6 +38,7 @@ You must provide a value for `SECRET_KEY` in your `backend.env` file. Use a cryp
 | `ENABLE_BREEDBASE` | Enable/disable Breedbase connection endpoints (`true`/`false`). |
 | `ENABLE_CAMPAIGNS` | Enable/disable campaign management endpoints (`true`/`false`). |
 | `ENABLE_IFORESTER` | Enable/disable iForester integration endpoints (`true`/`false`). |
+| `ENABLE_IGRADER` | Enable/disable iGrader integration endpoints (`true`/`false`). |
 | `ENABLE_STAC` | Enable/disable STAC (SpatioTemporal Asset Catalog) endpoints (`true`/`false`). |
 | `ENABLE_OPENTELEMETRY` | Enable/disable OpenTelemetry. Must also uncomment the `otel-collector` container and toggle the `backend` and `titiler` OpenTelemetry related environment settings in the docker compose config. Disabled by default. |
 | `EXTENSIONS` | Can be used to enable extensions. Should be left blank typically. |

@@ -319,6 +319,8 @@ Some endpoints support authentication via API key in addition to JWT tokens. Eac
 | Share Potree viewer | GET | `read` |
 | Record data product view | POST | `create` |
 | Create iForester record | POST | `create` (explicit; issue the iForester mobile app key with only this scope) |
+| Create or update iGrader record | POST | `create` (explicit; issue the iGrader mobile app key with only this scope) |
+| Upload iGrader images | POST | `create` (explicit) |
 | List, get BreedBase connections and study | GET | `read` |
 | Create BreedBase connection | POST | `create` |
 | Update BreedBase connection | PUT | `update` |
@@ -328,6 +330,8 @@ Some endpoints support authentication via API key in addition to JWT tokens. Eac
 The project role checks below still apply on top of the scope check.
 
 The iForester read, update, and delete routes are used by the web app with a signed in session and do not accept API keys. A key with only the `create` scope can add iForester records but cannot read, change, or remove them.
+
+The iGrader list route is likewise JWT only. A key with only the `create` scope can add iGrader records and upload images but cannot read them back, including through `/static/`. The iGrader POST updates an existing record when the same `id` is sent again, because the app re-sends a record when a submission is edited. Record ids are client generated UUIDs and the key cannot list them, so a holder of the key can only change records whose id they already know. Image uploads never overwrite an existing file; a repeated filename returns `409 Conflict`.
 
 ---
 
